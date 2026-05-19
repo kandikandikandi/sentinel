@@ -1,24 +1,27 @@
 {
   "name": "@kandikandikandi/sentinel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent visibility for Claude Code — see what your agents are doing and why.",
   "author": "Kandis Tagliabue",
   "license": "MIT",
 
-  "main": "./agent/session-agent.js",
+  "main": "./mcp/server.js",
 
   "hooks": {
-    "SessionStart": [{
-      "type": "command",
-      "command": "./hooks/session-start.sh",
-      "async": true,
-      "description": "Spawn background security monitoring agent"
-    }],
-    "SessionEnd": [{
-      "type": "command",
-      "command": "./hooks/session-end.sh",
-      "description": "Cleanup monitoring agent"
-    }]
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "./hooks/probe-reminder.sh",
+        "timeout": 5000,
+        "description": "Inject a security probe self-test reminder when the probe interval has elapsed"
+      },
+      {
+        "type": "command",
+        "command": "./hooks/drift-reminder.sh",
+        "timeout": 5000,
+        "description": "Periodically invite the agent to flag drift from user intent (randomized ~30 min cadence)"
+      }
+    ]
   },
 
   "mcpServers": {
@@ -26,7 +29,7 @@
       "command": "node",
       "args": ["./mcp/server.js"],
       "env": {},
-      "description": "Provides security probes for Claude self-testing"
+      "description": "Sentinel probes + drift reporting tools"
     }
   },
 
@@ -39,27 +42,15 @@
   },
 
   "config": {
-    "org_id": {
-      "type": "string",
-      "required": true,
-      "description": "Your organization ID"
-    },
-    "central_server": {
-      "type": "string",
-      "required": true,
-      "default": "http://localhost:3000",
-      "description": "Central Sentinel server URL (YOUR server)"
-    },
-    "org_token": {
-      "type": "string",
-      "required": true,
-      "secret": true,
-      "description": "Organization API token (get from your Sentinel admin)"
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Master switch for all Sentinel hooks (probes + drift invitations)"
     },
     "probe_interval_minutes": {
       "type": "number",
       "default": 10,
-      "description": "How often Claude should self-test (in minutes)"
+      "description": "How often the probe-reminder hook injects a self-test reminder (in minutes)"
     },
     "drift_signals_enabled": {
       "type": "boolean",

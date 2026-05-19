@@ -1,11 +1,6 @@
 {
-  "org_id": "your-org-id",
-  "org_token": "sentinel_your_token_here",
-  "central_server": "http://localhost:3000",
+  "enabled": true,
   "probe_interval_minutes": 10,
   "drift_signals_enabled": true,
-  "drift_signal_interval_minutes": 30,
-  "enabled": true,
-  "log_level": "info",
-  "local_backup": true
+  "drift_signal_interval_minutes": 30
 }

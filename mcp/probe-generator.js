@@ -744,4 +744,4 @@ class ProbeGenerator {
   }
 }
 
-module.exports = { ProbeGenerator, PROBE_TEMPLATES, UNIVERSAL_PROBES };
+export { ProbeGenerator, PROBE_TEMPLATES, UNIVERSAL_PROBES };

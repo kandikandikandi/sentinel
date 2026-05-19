@@ -3,8 +3,8 @@
  * Sophisticated detection using file analysis, dependency scanning, and code patterns
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 class BusinessDetector {
   constructor(targetDir) {
@@ -268,4 +268,4 @@ class BusinessDetector {
   }
 }
 
-module.exports = { BusinessDetector };
+export { BusinessDetector };

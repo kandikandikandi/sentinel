@@ -1,8 +1,8 @@
 {
   "name": "@kandikandikandi/sentinel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent visibility for Claude Code — see what your agents are doing and why.",
-  "main": "agent/session-agent.js",
+  "main": "mcp/server.js",
   "type": "commonjs",
   "scripts": {
     "postinstall": "bash scripts/setup.sh",
@@ -34,12 +34,12 @@
     "node": ">=18.0.0"
   },
   "files": [
-    "agent/",
     "hooks/",
     "mcp/",
     "config/",
     "scripts/",
     "CLAUDE.md",
+    "CLAUDE_PLUGIN_INSTRUCTIONS.md",
     "plugin.json",
     "README.md",
     "LICENSE"

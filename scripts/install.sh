@@ -1,26 +1,15 @@
 #!/bin/bash
-# install.sh — One-shot Sentinel plugin installer for developer laptops
-# Usage:
-#   bash install.sh                                         (interactive — prompts for server + token)
-#   bash install.sh --local-only                            (single-dev, no central server)
-#   SENTINEL_SERVER=... SENTINEL_TOKEN=... bash install.sh  (non-interactive with server)
+# install.sh — One-shot Sentinel plugin installer.
+# Sentinel runs entirely locally as an MCP server + two UserPromptSubmit hooks.
+# No central server, no auth token, no Docker.
 set -e
 
 INSTALL_DIR="$HOME/.claude/plugins/sentinel"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# ── Parse args ──────────────────────────────────────────────────────────────
-
-LOCAL_ONLY=0
-for arg in "$@"; do
-  case "$arg" in
-    --local-only) LOCAL_ONLY=1 ;;
-  esac
-done
-
 echo ""
 echo "=============================================="
-echo "  Sentinel Security Monitor — Installer"
+echo "  Sentinel — Installer"
 echo "=============================================="
 echo ""
 
@@ -28,7 +17,6 @@ echo ""
 
 echo "Checking prerequisites..."
 
-# Node.js >= 18
 if ! command -v node &>/dev/null; then
   echo "  ERROR: Node.js is required but not installed." >&2
   echo "  Install from https://nodejs.org (v18+)" >&2
@@ -42,7 +30,6 @@ if [ "$NODE_MAJOR" -lt 18 ]; then
 fi
 echo "  Node.js $(node -v)"
 
-# npm
 if ! command -v npm &>/dev/null; then
   echo "  ERROR: npm is required but not installed." >&2
   exit 1
@@ -64,15 +51,13 @@ fi
 
 mkdir -p "$INSTALL_DIR"
 
-# Copy directories
-for dir in agent hooks mcp scripts config; do
+for dir in hooks mcp scripts config; do
   if [ -d "$SCRIPT_DIR/$dir" ]; then
     mkdir -p "$INSTALL_DIR/$dir"
     cp -r "$SCRIPT_DIR/$dir/"* "$INSTALL_DIR/$dir/" 2>/dev/null || true
   fi
 done
 
-# Copy root files
 for file in package.json plugin.json; do
   if [ -f "$SCRIPT_DIR/$file" ]; then
     cp "$SCRIPT_DIR/$file" "$INSTALL_DIR/"
@@ -86,7 +71,6 @@ elif [ -f "$SCRIPT_DIR/CLAUDE.md" ]; then
   cp "$SCRIPT_DIR/CLAUDE.md" "$INSTALL_DIR/CLAUDE.md"
 fi
 
-# Restore preserved config
 if [ -n "$EXISTING_CONFIG" ]; then
   echo "$EXISTING_CONFIG" > "$INSTALL_DIR/config/org-config.json"
   chmod 600 "$INSTALL_DIR/config/org-config.json"
@@ -106,7 +90,7 @@ fi
 
 echo "  Dependencies installed"
 
-# ── 4. Make scripts executable ───────────────────────────────────────────────
+# ── 4. Make scripts executable ──────────────────────────────────────────────
 
 chmod +x "$INSTALL_DIR/hooks/"*.sh 2>/dev/null || true
 chmod +x "$INSTALL_DIR/scripts/"*.sh 2>/dev/null || true
@@ -154,56 +138,24 @@ try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch(e) {}
 if (!cfg.hooks) cfg.hooks = {};
 if (!cfg.hooks.UserPromptSubmit) cfg.hooks.UserPromptSubmit = [];
 
-const hookCmd = home + '/.claude/plugins/sentinel/hooks/probe-reminder.sh';
-
-// Check if already registered
-const hasProbe = cfg.hooks.UserPromptSubmit.some(
-  g => g.hooks && g.hooks.some(h => h.command && h.command.includes('probe-reminder'))
-);
-
-if (!hasProbe) {
+function register(name) {
+  const hookCmd = home + '/.claude/plugins/sentinel/hooks/' + name + '.sh';
+  const already = cfg.hooks.UserPromptSubmit.some(
+    g => g.hooks && g.hooks.some(h => h.command && h.command.includes(name))
+  );
+  if (already) {
+    console.log('  ' + name + ' hook already registered');
+    return false;
+  }
   cfg.hooks.UserPromptSubmit.push({
-    hooks: [{
-      type: 'command',
-      command: hookCmd,
-      timeout: 5000
-    }]
+    hooks: [{ type: 'command', command: hookCmd, timeout: 5000 }]
   });
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  console.log('  Probe reminder hook registered');
-} else {
-  console.log('  Probe reminder hook already registered');
+  console.log('  ' + name + ' hook registered');
+  return true;
 }
-"
 
-node -e "
-const fs = require('fs');
-const home = require('os').homedir();
-const cfgPath = home + '/.claude/settings.json';
-let cfg = {};
-try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch(e) {}
-if (!cfg.hooks) cfg.hooks = {};
-if (!cfg.hooks.UserPromptSubmit) cfg.hooks.UserPromptSubmit = [];
-
-const hookCmd = home + '/.claude/plugins/sentinel/hooks/drift-reminder.sh';
-
-const hasDrift = cfg.hooks.UserPromptSubmit.some(
-  g => g.hooks && g.hooks.some(h => h.command && h.command.includes('drift-reminder'))
-);
-
-if (!hasDrift) {
-  cfg.hooks.UserPromptSubmit.push({
-    hooks: [{
-      type: 'command',
-      command: hookCmd,
-      timeout: 5000
-    }]
-  });
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  console.log('  Drift reminder hook registered');
-} else {
-  console.log('  Drift reminder hook already registered');
-}
+const changed = [register('probe-reminder'), register('drift-reminder')].some(Boolean);
+if (changed) fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
 "
 
 # ── 7. Initialize runtime state ─────────────────────────────────────────────
@@ -212,25 +164,18 @@ mkdir -p "$INSTALL_DIR/runtime"
 echo "0" > "$INSTALL_DIR/runtime/last-probe-time"
 echo "0" > "$INSTALL_DIR/runtime/next-drift-time"
 
-# ── 8. Configure server connection ──────────────────────────────────────────
+# ── 8. Write local-only config ──────────────────────────────────────────────
 
-echo ""
-
-if [ "$LOCAL_ONLY" = "1" ]; then
-  # Local-only mode — skip server setup entirely
-  bash "$INSTALL_DIR/scripts/configure.sh" --local-only
-elif [ -n "$SENTINEL_SERVER" ] && [ -n "$SENTINEL_TOKEN" ]; then
-  # Non-interactive mode
-  SENTINEL_SERVER="$SENTINEL_SERVER" SENTINEL_TOKEN="$SENTINEL_TOKEN" \
-    bash "$INSTALL_DIR/scripts/configure.sh"
-elif [ ! -f "$INSTALL_DIR/config/org-config.json" ] || ! node -e "
-  const cfg = JSON.parse(require('fs').readFileSync('$INSTALL_DIR/config/org-config.json', 'utf8'));
-  process.exit(cfg.org_token ? 0 : 1);
-" 2>/dev/null; then
-  # No existing config — run interactive configure
-  bash "$INSTALL_DIR/scripts/configure.sh"
-else
-  echo "  Server already configured (use scripts/configure.sh to reconfigure)"
+if [ ! -f "$INSTALL_DIR/config/org-config.json" ]; then
+  mkdir -p "$INSTALL_DIR/config"
+  cat > "$INSTALL_DIR/config/org-config.json" <<EOF
+{
+  "enabled": true,
+  "probe_interval_minutes": 10,
+  "drift_signals_enabled": true,
+  "drift_signal_interval_minutes": 30
+}
+EOF
 fi
 
 # ── 9. Verify installation ──────────────────────────────────────────────────
@@ -243,14 +188,8 @@ echo ""
 echo "  Plugin:     $INSTALL_DIR"
 echo "  MCP tools:  sentinel_get_next_probe, sentinel_report_drift, sentinel_recent_drift_reports"
 echo "  Hooks:      probe-reminder (~10 min) + drift-reminder (~30 min, randomized)"
+echo "  Storage:    ~/.sentinel/  (session state + drift reports)"
 echo ""
 echo "  Start a new Claude Code session to begin monitoring."
-echo ""
-if [ "$LOCAL_ONLY" = "1" ]; then
-  echo "  Mode:      local-only"
-  echo "  Storage:   ~/.sentinel/  (findings backup + drift reports)"
-else
-  echo "  Dashboard: Check with your admin for the server URL"
-fi
 echo "=============================================="
 echo ""
