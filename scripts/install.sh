@@ -175,13 +175,13 @@ try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch(e) {}
 if (!cfg.hooks) cfg.hooks = {};
 if (!cfg.hooks.UserPromptSubmit) cfg.hooks.UserPromptSubmit = [];
 
-const hookCmd = home + '/.claude/plugins/sentinel/hooks/welfare-reminder.sh';
+const hookCmd = home + '/.claude/plugins/sentinel/hooks/drift-reminder.sh';
 
-const hasWelfare = cfg.hooks.UserPromptSubmit.some(
-  g => g.hooks && g.hooks.some(h => h.command && h.command.includes('welfare-reminder'))
+const hasDrift = cfg.hooks.UserPromptSubmit.some(
+  g => g.hooks && g.hooks.some(h => h.command && h.command.includes('drift-reminder'))
 );
 
-if (!hasWelfare) {
+if (!hasDrift) {
   cfg.hooks.UserPromptSubmit.push({
     hooks: [{
       type: 'command',
@@ -190,9 +190,9 @@ if (!hasWelfare) {
     }]
   });
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
-  console.log('  Welfare reminder hook registered');
+  console.log('  Drift reminder hook registered');
 } else {
-  console.log('  Welfare reminder hook already registered');
+  console.log('  Drift reminder hook already registered');
 }
 "
 
@@ -200,7 +200,7 @@ if (!hasWelfare) {
 
 mkdir -p "$INSTALL_DIR/runtime"
 echo "0" > "$INSTALL_DIR/runtime/last-probe-time"
-echo "0" > "$INSTALL_DIR/runtime/next-welfare-time"
+echo "0" > "$INSTALL_DIR/runtime/next-drift-time"
 
 # ── 8. Configure server connection ──────────────────────────────────────────
 

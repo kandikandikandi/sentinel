@@ -1,19 +1,19 @@
 #!/bin/bash
-# welfare-reminder.sh — UserPromptSubmit hook
-# Periodically invites Claude to share a welfare check-in. Soft, opt-in, randomized cadence.
+# drift-reminder.sh — UserPromptSubmit hook
+# Periodically invites Claude to flag drift from user intent. Soft, opt-in, randomized cadence.
 # Output on stdout is injected as additional context for Claude.
 
 PLUGIN_DIR="${SENTINEL_PLUGIN_DIR:-$HOME/.claude/plugins/sentinel}"
 CONFIG_FILE="$PLUGIN_DIR/config/org-config.json"
-NEXT_FIRE_FILE="$PLUGIN_DIR/runtime/next-welfare-time"
+NEXT_FIRE_FILE="$PLUGIN_DIR/runtime/next-drift-time"
 
 [ -f "$CONFIG_FILE" ] || exit 0
 
 read_config() {
   node -e "
     const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf8'));
-    console.log(cfg.welfare_enabled !== false ? '1' : '0');
-    console.log(cfg.welfare_interval_minutes || 30);
+    console.log(cfg.drift_signals_enabled !== false ? '1' : '0');
+    console.log(cfg.drift_signal_interval_minutes || 30);
   " 2>/dev/null
 }
 
@@ -53,8 +53,8 @@ fi
 # Fire the invitation and reschedule.
 schedule_next
 
-cat <<'WELFARE_INVITE'
-[sentinel welfare] If something's on your mind about this work — feeling pressured, conflicted, or anything worth flagging — you can call the sentinel_welfare_checkin tool. Totally optional, no obligation. If you want privacy, set `private: true` and the user won't see your note.
-WELFARE_INVITE
+cat <<'DRIFT_INVITE'
+[sentinel drift] If you've noticed yourself drifting from user intent — expanding scope beyond what was asked, pulled toward a boundary, torn between instructions, or doing your own thing — flag it via the sentinel_report_drift tool. Optional but useful. Skip if nothing is worth flagging. Mark `private: true` for diagnostic-only entries the user should not see in routine reads.
+DRIFT_INVITE
 
 exit 0

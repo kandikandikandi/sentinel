@@ -61,15 +61,15 @@
       "default": 10,
       "description": "How often Claude should self-test (in minutes)"
     },
-    "welfare_enabled": {
+    "drift_signals_enabled": {
       "type": "boolean",
       "default": true,
-      "description": "Enable optional welfare check-in invitations"
+      "description": "Enable optional drift-report invitations"
     },
-    "welfare_interval_minutes": {
+    "drift_signal_interval_minutes": {
       "type": "number",
       "default": 30,
-      "description": "Base interval between welfare invitations (randomized ±50%)"
+      "description": "Base interval between drift-report invitations (randomized ±50%)"
     }
   },
 

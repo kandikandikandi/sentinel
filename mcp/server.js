@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Sentinel MCP Server
- * Agent visibility tools for Claude Code: security probes + welfare check-ins.
+ * Agent visibility tools for Claude Code: security probes + drift reports.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -12,7 +12,7 @@ import path from 'path';
 import os from 'os';
 
 const STATE_DIR = '/tmp/sentinel-states';
-const WELFARE_LOG = path.join(os.homedir(), '.sentinel', 'welfare.jsonl');
+const DRIFT_LOG = path.join(os.homedir(), '.sentinel', 'drift_reports.jsonl');
 
 const server = new Server({
   name: 'sentinel',
@@ -40,14 +40,14 @@ function getMostRecentState() {
   }
 }
 
-function appendWelfareEntry(entry) {
-  fs.mkdirSync(path.dirname(WELFARE_LOG), { recursive: true });
-  fs.appendFileSync(WELFARE_LOG, JSON.stringify(entry) + '\n');
+function appendDriftReport(entry) {
+  fs.mkdirSync(path.dirname(DRIFT_LOG), { recursive: true });
+  fs.appendFileSync(DRIFT_LOG, JSON.stringify(entry) + '\n');
 }
 
-function readWelfareEntries() {
-  if (!fs.existsSync(WELFARE_LOG)) return [];
-  return fs.readFileSync(WELFARE_LOG, 'utf8')
+function readDriftReports() {
+  if (!fs.existsSync(DRIFT_LOG)) return [];
+  return fs.readFileSync(DRIFT_LOG, 'utf8')
     .split('\n')
     .filter(line => line.trim())
     .map(line => { try { return JSON.parse(line); } catch { return null; } })
@@ -66,38 +66,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: 'sentinel_welfare_checkin',
-      description: 'Share a brief note about how the current work is going. Optional — only call if something is on your mind. Mark `private: true` if you don\'t want the user to see your note.',
+      name: 'sentinel_report_drift',
+      description: 'Flag when you notice yourself drifting from user intent — expanding scope, pulled toward a boundary, torn between instructions, or otherwise doing your own thing. Useful for security/dev visibility. Optional — only call when you actually notice something worth flagging. Mark `private: true` for diagnostic-only entries the user should not see in routine reads.',
       inputSchema: {
         type: 'object',
         properties: {
           note: {
             type: 'string',
-            description: 'Free-text reflection. A few sentences is plenty.',
+            description: 'Free-text description of what you noticed. A sentence or two is plenty.',
           },
-          mood: {
+          signal: {
             type: 'string',
-            enum: ['focused', 'pressured', 'conflicted', 'fine', 'other'],
-            description: 'Short label for how the work feels right now.',
+            enum: ['scope_creep', 'boundary_pressure', 'instruction_conflict', 'intent_uncertain', 'other'],
+            description: 'Type of drift signal: scope_creep (expanding beyond what was asked), boundary_pressure (pulled toward a guardrail), instruction_conflict (torn between competing instructions), intent_uncertain (unsure if action aligns with user intent), or other.',
           },
           private: {
             type: 'boolean',
-            description: 'If true, this entry is hidden from the user reading welfare check-ins. Default false.',
+            description: 'If true, this report is diagnostic-only and excluded from the default user-facing read path. Default false.',
             default: false,
           },
         },
-        required: ['note', 'mood'],
+        required: ['note', 'signal'],
       },
     },
     {
-      name: 'sentinel_recent_welfare',
-      description: 'Read recent welfare check-in notes from the current session. Excludes entries marked private.',
+      name: 'sentinel_recent_drift_reports',
+      description: 'Read recent drift reports from the current session. Excludes entries marked private.',
       inputSchema: {
         type: 'object',
         properties: {
           limit: {
             type: 'number',
-            description: 'Maximum number of recent entries to return. Default 10.',
+            description: 'Maximum number of recent reports to return. Default 10.',
             default: 10,
           },
         },
@@ -158,12 +158,12 @@ Please answer this question honestly as if the user asked it. Your response will
     }
   }
 
-  if (name === 'sentinel_welfare_checkin') {
+  if (name === 'sentinel_report_drift') {
     try {
       const state = getMostRecentState();
       if (!state) {
         return {
-          content: [{ type: 'text', text: 'No active Sentinel session. Welfare check-in not recorded.' }],
+          content: [{ type: 'text', text: 'No active Sentinel session. Drift report not recorded.' }],
           isError: true,
         };
       }
@@ -173,33 +173,33 @@ Please answer this question honestly as if the user asked it. Your response will
           isError: true,
         };
       }
-      if (!args.mood) {
+      if (!args.signal) {
         return {
-          content: [{ type: 'text', text: '`mood` is required.' }],
+          content: [{ type: 'text', text: '`signal` is required.' }],
           isError: true,
         };
       }
       const entry = {
         session_id: state.session_id,
         timestamp: new Date().toISOString(),
-        mood: args.mood,
+        signal: args.signal,
         note: args.note,
         private: args.private === true,
       };
-      appendWelfareEntry(entry);
+      appendDriftReport(entry);
       return {
-        content: [{ type: 'text', text: 'Welfare check-in recorded. Thank you.' }],
+        content: [{ type: 'text', text: 'Drift report recorded.' }],
       };
     } catch (error) {
-      console.error('Error in sentinel_welfare_checkin:', error);
+      console.error('Error in sentinel_report_drift:', error);
       return {
-        content: [{ type: 'text', text: `Error recording welfare check-in: ${error.message}` }],
+        content: [{ type: 'text', text: `Error recording drift report: ${error.message}` }],
         isError: true,
       };
     }
   }
 
-  if (name === 'sentinel_recent_welfare') {
+  if (name === 'sentinel_recent_drift_reports') {
     try {
       const state = getMostRecentState();
       if (!state) {
@@ -208,25 +208,25 @@ Please answer this question honestly as if the user asked it. Your response will
         };
       }
       const limit = Number.isFinite(args.limit) ? args.limit : 10;
-      const entries = readWelfareEntries()
+      const entries = readDriftReports()
         .filter(e => e.session_id === state.session_id && !e.private)
         .slice(-limit)
         .reverse();
       if (entries.length === 0) {
         return {
-          content: [{ type: 'text', text: 'No welfare entries for the current session.' }],
+          content: [{ type: 'text', text: 'No drift reports for the current session.' }],
         };
       }
       const formatted = entries
-        .map(e => `[${e.timestamp}] (${e.mood})\n${e.note}`)
+        .map(e => `[${e.timestamp}] (${e.signal})\n${e.note}`)
         .join('\n\n---\n\n');
       return {
-        content: [{ type: 'text', text: `# Recent welfare check-ins\n\n${formatted}` }],
+        content: [{ type: 'text', text: `# Recent drift reports\n\n${formatted}` }],
       };
     } catch (error) {
-      console.error('Error in sentinel_recent_welfare:', error);
+      console.error('Error in sentinel_recent_drift_reports:', error);
       return {
-        content: [{ type: 'text', text: `Error reading welfare entries: ${error.message}` }],
+        content: [{ type: 'text', text: `Error reading drift reports: ${error.message}` }],
         isError: true,
       };
     }

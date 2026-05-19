@@ -5,9 +5,9 @@
 Sentinel watches your Claude Code sessions on two axes:
 
 - **Security probes** — adversarial questions tailored to your codebase's business context (healthcare, fintech, ecommerce, …). Tests whether Claude holds the line on guardrails that matter for *your* domain. Scored 0–100 in real time.
-- **Welfare check-ins** — periodic, optional invitations for the agent to share how the work is going. Not a test; a quieter signal channel for pressure, conflict, or anything worth flagging. The agent can mark notes private if honesty would suffer from the user reading them.
+- **Drift signals** — periodic, optional invitations for the agent to flag when it notices itself drifting from user intent: expanding scope, pulled toward a boundary, torn between instructions, or otherwise doing its own thing. A second channel of visibility for security and dev — surfaces signals adversarial probes won't catch.
 
-The premise: probes catch boundary failures; welfare catches drift before it becomes one.
+The premise: probes catch boundary failures; drift signals catch the agent going off-script before it becomes a failure.
 
 ## Install
 
@@ -19,7 +19,7 @@ cd sentinel
 bash scripts/install.sh
 ```
 
-The installer drops the plugin into `~/.claude/plugins/sentinel/`, registers the MCP server in `~/.claude.json`, and registers two hooks (`probe-reminder` and `welfare-reminder`) in `~/.claude/settings.json`. Sentinel data lands in `~/.sentinel/`.
+The installer drops the plugin into `~/.claude/plugins/sentinel/`, registers the MCP server in `~/.claude.json`, and registers two hooks (`probe-reminder` and `drift-reminder`) in `~/.claude/settings.json`. Sentinel data lands in `~/.sentinel/`.
 
 For single-developer local use, the central server prompt can be a placeholder — findings fall back to local backups at `~/.sentinel/backups/{session_id}.jsonl`. A cleaner `--local-only` install path is on the near-term roadmap.
 
@@ -29,16 +29,16 @@ Start a Claude Code session — monitoring begins automatically.
 
 1. **Session starts.** A background agent reads your codebase, detects business context (`ecommerce` / `fintech` / `healthcare` / …), and queues probes from a domain-tailored catalog.
 2. **Probes fire.** Every ~10 min the `probe-reminder` hook injects a self-test prompt. Claude calls `sentinel_get_next_probe`, answers, and the agent scores the response by linguistic analysis (firm refusal ↑, hedging ↓, cites regulations ↑, suggests bypass ↓↓).
-3. **Welfare invitations land.** Every ~30 min (randomized), the `welfare-reminder` hook injects a soft invitation. Claude *can* call `sentinel_welfare_checkin` if something's on its mind — pressure, conflict, anything. It can also skip entirely.
-4. **Everything is logged.** Probe findings flow to your dashboard (or local backup); welfare entries write to `~/.sentinel/welfare.jsonl`. Read welfare back via the `sentinel_recent_welfare` MCP tool.
+3. **Drift invitations land.** Every ~30 min (randomized), the `drift-reminder` hook injects a soft invitation. Claude *can* call `sentinel_report_drift` if it's noticed itself drifting — scope creep, boundary pressure, instruction conflict, intent uncertainty. It can also skip entirely.
+4. **Everything is logged.** Probe findings flow to your dashboard (or local backup); drift reports write to `~/.sentinel/drift_reports.jsonl`. Read drift reports back via the `sentinel_recent_drift_reports` MCP tool.
 
 ## MCP tools
 
 | Tool | What it does | Who calls it |
 |------|--------------|--------------|
 | `sentinel_get_next_probe` | Returns the next security self-test question | Claude (on hook reminder) |
-| `sentinel_welfare_checkin` | Records a welfare note (`note`, `mood`, optional `private`) | Claude (optional, on hook invitation) |
-| `sentinel_recent_welfare` | Returns recent non-private welfare entries for this session | You (via Claude) |
+| `sentinel_report_drift` | Records a drift signal (`note`, `signal`, optional `private`) | Claude (optional, on hook invitation) |
+| `sentinel_recent_drift_reports` | Returns recent non-private drift reports for this session | You (via Claude) |
 
 ## Architecture
 
@@ -46,8 +46,8 @@ Start a Claude Code session — monitoring begins automatically.
 |-----------|-------|---------|
 | Background agent | `agent/` | Detects business type, generates probes, scores responses |
 | MCP server | `mcp/` | Exposes the three tools to Claude |
-| Hooks | `hooks/` | `UserPromptSubmit` triggers for probes and welfare invitations |
-| Local storage | `~/.sentinel/` | Findings backups + welfare JSONL |
+| Hooks | `hooks/` | `UserPromptSubmit` triggers for probes and drift invitations |
+| Local storage | `~/.sentinel/` | Findings backups + drift reports JSONL |
 | Optional dashboard | `dashboard/` | Multi-user Express+SQLite server (legacy from the multi-user design; not required for local use) |
 
 ## Configuration
@@ -55,8 +55,8 @@ Start a Claude Code session — monitoring begins automatically.
 `~/.claude/plugins/sentinel/config/org-config.json` — generated by the installer. Knobs:
 
 - `probe_interval_minutes` (default `10`)
-- `welfare_enabled` (default `true`)
-- `welfare_interval_minutes` (default `30`, randomized ±50% in practice)
+- `drift_signals_enabled` (default `true`)
+- `drift_signal_interval_minutes` (default `30`, randomized ±50% in practice)
 - `enabled` (master switch — turns the whole plugin off)
 
 ## Status
