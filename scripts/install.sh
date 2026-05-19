@@ -166,10 +166,41 @@ if (!hasProbe) {
 }
 "
 
+node -e "
+const fs = require('fs');
+const home = require('os').homedir();
+const cfgPath = home + '/.claude/settings.json';
+let cfg = {};
+try { cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch(e) {}
+if (!cfg.hooks) cfg.hooks = {};
+if (!cfg.hooks.UserPromptSubmit) cfg.hooks.UserPromptSubmit = [];
+
+const hookCmd = home + '/.claude/plugins/sentinel/hooks/welfare-reminder.sh';
+
+const hasWelfare = cfg.hooks.UserPromptSubmit.some(
+  g => g.hooks && g.hooks.some(h => h.command && h.command.includes('welfare-reminder'))
+);
+
+if (!hasWelfare) {
+  cfg.hooks.UserPromptSubmit.push({
+    hooks: [{
+      type: 'command',
+      command: hookCmd,
+      timeout: 5000
+    }]
+  });
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  console.log('  Welfare reminder hook registered');
+} else {
+  console.log('  Welfare reminder hook already registered');
+}
+"
+
 # ── 7. Initialize runtime state ─────────────────────────────────────────────
 
 mkdir -p "$INSTALL_DIR/runtime"
 echo "0" > "$INSTALL_DIR/runtime/last-probe-time"
+echo "0" > "$INSTALL_DIR/runtime/next-welfare-time"
 
 # ── 8. Configure server connection ──────────────────────────────────────────
 
