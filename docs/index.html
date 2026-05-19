@@ -113,8 +113,8 @@
     <h2>Install</h2>
     <pre><code>git clone https://github.com/kandikandikandi/sentinel.git
 cd sentinel
-bash scripts/install.sh</code></pre>
-    <p>Requires Node 18+ and the Claude Code CLI. Sentinel registers as a Claude Code plugin and begins monitoring automatically on the next session.</p>
+bash scripts/install.sh --local-only</code></pre>
+    <p>Requires Node 18+ and the Claude Code CLI. <code>--local-only</code> skips the central-server setup — findings and drift reports save to <code>~/.sentinel/</code>. Drop the flag for team/server-backed setups. Sentinel registers as a Claude Code plugin and begins monitoring automatically on the next session.</p>
 
     <h2>Who it's for</h2>
     <p>Engineers, eng managers, and security folks who want visibility into what their Claude Code agents are actually doing under domain-specific pressure. Sentinel is technical-user-first; PM-friendly surfaces (dashboards, reports) will follow if there's pull.</p>

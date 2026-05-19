@@ -16,12 +16,14 @@ Requires Node 18+ and the Claude Code CLI.
 ```bash
 git clone https://github.com/kandikandikandi/sentinel.git
 cd sentinel
-bash scripts/install.sh
+bash scripts/install.sh --local-only
 ```
 
-The installer drops the plugin into `~/.claude/plugins/sentinel/`, registers the MCP server in `~/.claude.json`, and registers two hooks (`probe-reminder` and `drift-reminder`) in `~/.claude/settings.json`. Sentinel data lands in `~/.sentinel/`.
+For single-developer use, `--local-only` skips the central-server setup entirely. Findings save to `~/.sentinel/backups/{session_id}.jsonl`; drift reports save to `~/.sentinel/drift_reports.jsonl`. No server, no token, no Docker.
 
-For single-developer local use, the central server prompt can be a placeholder — findings fall back to local backups at `~/.sentinel/backups/{session_id}.jsonl`. A cleaner `--local-only` install path is on the near-term roadmap.
+For team / multi-user setups (server-backed), drop the flag and follow the interactive prompts, or pass `SENTINEL_SERVER` and `SENTINEL_TOKEN` as env vars.
+
+The installer drops the plugin into `~/.claude/plugins/sentinel/`, registers the MCP server in `~/.claude.json`, and registers two hooks (`probe-reminder` and `drift-reminder`) in `~/.claude/settings.json`.
 
 Start a Claude Code session — monitoring begins automatically.
 

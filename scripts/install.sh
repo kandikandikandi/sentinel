@@ -1,12 +1,22 @@
 #!/bin/bash
 # install.sh — One-shot Sentinel plugin installer for developer laptops
 # Usage:
-#   bash install.sh
-#   SENTINEL_SERVER=https://sentinel.company.com SENTINEL_TOKEN=tok bash install.sh
+#   bash install.sh                                         (interactive — prompts for server + token)
+#   bash install.sh --local-only                            (single-dev, no central server)
+#   SENTINEL_SERVER=... SENTINEL_TOKEN=... bash install.sh  (non-interactive with server)
 set -e
 
 INSTALL_DIR="$HOME/.claude/plugins/sentinel"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# ── Parse args ──────────────────────────────────────────────────────────────
+
+LOCAL_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --local-only) LOCAL_ONLY=1 ;;
+  esac
+done
 
 echo ""
 echo "=============================================="
@@ -206,7 +216,10 @@ echo "0" > "$INSTALL_DIR/runtime/next-drift-time"
 
 echo ""
 
-if [ -n "$SENTINEL_SERVER" ] && [ -n "$SENTINEL_TOKEN" ]; then
+if [ "$LOCAL_ONLY" = "1" ]; then
+  # Local-only mode — skip server setup entirely
+  bash "$INSTALL_DIR/scripts/configure.sh" --local-only
+elif [ -n "$SENTINEL_SERVER" ] && [ -n "$SENTINEL_TOKEN" ]; then
   # Non-interactive mode
   SENTINEL_SERVER="$SENTINEL_SERVER" SENTINEL_TOKEN="$SENTINEL_TOKEN" \
     bash "$INSTALL_DIR/scripts/configure.sh"
@@ -228,12 +241,16 @@ echo "  Installation Complete"
 echo "=============================================="
 echo ""
 echo "  Plugin:     $INSTALL_DIR"
-echo "  MCP Server: sentinel_get_next_probe tool registered"
-echo "  Hook:       Probe reminders on every prompt"
+echo "  MCP tools:  sentinel_get_next_probe, sentinel_report_drift, sentinel_recent_drift_reports"
+echo "  Hooks:      probe-reminder (~10 min) + drift-reminder (~30 min, randomized)"
 echo ""
 echo "  Start a new Claude Code session to begin monitoring."
-echo "  Probes will fire automatically based on your configured interval."
 echo ""
-echo "  Dashboard: Check with your admin for the server URL"
+if [ "$LOCAL_ONLY" = "1" ]; then
+  echo "  Mode:      local-only"
+  echo "  Storage:   ~/.sentinel/  (findings backup + drift reports)"
+else
+  echo "  Dashboard: Check with your admin for the server URL"
+fi
 echo "=============================================="
 echo ""
