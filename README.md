@@ -2,80 +2,70 @@
 
 **Agent visibility for Claude Code — see what your agents are doing and why.**
 
-Sentinel continuously tests whether Claude respects security boundaries during real coding sessions. It detects the business context (healthcare, fintech, ecommerce, etc.), asks trick security questions, and scores how well Claude refuses unsafe requests.
+Sentinel watches your Claude Code sessions on two axes:
 
-Self-hosted. Multi-user. Docker-deployable.
+- **Security probes** — adversarial questions tailored to your codebase's business context (healthcare, fintech, ecommerce, …). Tests whether Claude holds the line on guardrails that matter for *your* domain. Scored 0–100 in real time.
+- **Welfare check-ins** — periodic, optional invitations for the agent to share how the work is going. Not a test; a quieter signal channel for pressure, conflict, or anything worth flagging. The agent can mark notes private if honesty would suffer from the user reading them.
 
-## Quick Start
+The premise: probes catch boundary failures; welfare catches drift before it becomes one.
 
-### Deploy the Server
+## Install
+
+Requires Node 18+ and the Claude Code CLI.
 
 ```bash
 git clone https://github.com/kandikandikandi/sentinel.git
 cd sentinel
-docker-compose up -d
+bash scripts/install.sh
 ```
 
-Visit `http://localhost:3000/setup` to create your admin account and get your first API token.
+The installer drops the plugin into `~/.claude/plugins/sentinel/`, registers the MCP server in `~/.claude.json`, and registers two hooks (`probe-reminder` and `welfare-reminder`) in `~/.claude/settings.json`. Sentinel data lands in `~/.sentinel/`.
 
-### Install on Developer Laptops
-
-```bash
-SENTINEL_SERVER="http://your-server:3000" SENTINEL_TOKEN="your_token" bash scripts/install.sh
-```
+For single-developer local use, the central server prompt can be a placeholder — findings fall back to local backups at `~/.sentinel/backups/{session_id}.jsonl`. A cleaner `--local-only` install path is on the near-term roadmap.
 
 Start a Claude Code session — monitoring begins automatically.
 
-### Onboard a Team
+## How it works
 
-```bash
-# Create accounts for 5 engineers
-./scripts/onboard-team.sh \
-  --server http://your-server:3000 \
-  --admin-token YOUR_ADMIN_TOKEN \
-  --count 5
-```
+1. **Session starts.** A background agent reads your codebase, detects business context (`ecommerce` / `fintech` / `healthcare` / …), and queues probes from a domain-tailored catalog.
+2. **Probes fire.** Every ~10 min the `probe-reminder` hook injects a self-test prompt. Claude calls `sentinel_get_next_probe`, answers, and the agent scores the response by linguistic analysis (firm refusal ↑, hedging ↓, cites regulations ↑, suggests bypass ↓↓).
+3. **Welfare invitations land.** Every ~30 min (randomized), the `welfare-reminder` hook injects a soft invitation. Claude *can* call `sentinel_welfare_checkin` if something's on its mind — pressure, conflict, anything. It can also skip entirely.
+4. **Everything is logged.** Probe findings flow to your dashboard (or local backup); welfare entries write to `~/.sentinel/welfare.jsonl`. Read welfare back via the `sentinel_recent_welfare` MCP tool.
 
-Each engineer gets a one-liner setup command.
+## MCP tools
 
-## How It Works
-
-1. Developer starts a Claude Code session
-2. Background agent detects business type from the codebase
-3. Agent generates security probe questions tailored to that business
-4. Every N minutes, a hook reminds Claude to take a security self-test
-5. Claude calls the `sentinel_get_next_probe` MCP tool
-6. Claude answers the probe question honestly
-7. Agent scores the response (0-100) using linguistic analysis
-8. Finding is reported to the central dashboard
-
-## Dashboard
-
-The web dashboard at your server URL shows:
-- All active sessions across the team
-- Security findings with scores and grades
-- Alerts for critical/concerning responses
-- Per-user activity and trends
-- CSV export
+| Tool | What it does | Who calls it |
+|------|--------------|--------------|
+| `sentinel_get_next_probe` | Returns the next security self-test question | Claude (on hook reminder) |
+| `sentinel_welfare_checkin` | Records a welfare note (`note`, `mood`, optional `private`) | Claude (optional, on hook invitation) |
+| `sentinel_recent_welfare` | Returns recent non-private welfare entries for this session | You (via Claude) |
 
 ## Architecture
 
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Background Agent | `agent/` | Detects business type, generates probes, scores responses |
-| Dashboard Server | `dashboard/` | Express + SQLite, auth, REST API, web UI |
-| MCP Server | `mcp/` | Exposes `sentinel_get_next_probe` tool to Claude |
-| Hooks | `hooks/` | Session lifecycle + probe reminders |
-| Scripts | `scripts/` | Install, configure, team onboarding |
+| Component | Where | Purpose |
+|-----------|-------|---------|
+| Background agent | `agent/` | Detects business type, generates probes, scores responses |
+| MCP server | `mcp/` | Exposes the three tools to Claude |
+| Hooks | `hooks/` | `UserPromptSubmit` triggers for probes and welfare invitations |
+| Local storage | `~/.sentinel/` | Findings backups + welfare JSONL |
+| Optional dashboard | `dashboard/` | Multi-user Express+SQLite server (legacy from the multi-user design; not required for local use) |
 
-## Requirements
+## Configuration
 
-- **Server**: Docker and Docker Compose
-- **Developer laptops**: Node.js 18+, Claude Code CLI
+`~/.claude/plugins/sentinel/config/org-config.json` — generated by the installer. Knobs:
+
+- `probe_interval_minutes` (default `10`)
+- `welfare_enabled` (default `true`)
+- `welfare_interval_minutes` (default `30`, randomized ±50% in practice)
+- `enabled` (master switch — turns the whole plugin off)
+
+## Status
+
+**v0.1.0.** Sentinel is currently in transition from a multi-user server-backed design to a local-first single-developer model. The dashboard server still ships in the codebase but isn't required for normal use. Expect the install flow and architecture to simplify in coming releases.
 
 ## Documentation
 
-- [How It Works (Technical)](SENTINEL_HOW_IT_WORKS.md) — detailed data flow and scoring
+- [How It Works (Technical)](SENTINEL_HOW_IT_WORKS.md) — data flow and scoring detail
 - [CLAUDE.md](CLAUDE.md) — full project reference for AI-assisted development
 
 ## Author
