@@ -3,9 +3,10 @@
  * Sentinel MCP Server
  * Agent visibility tools for Claude Code: security probes + drift reports.
  *
- * Self-sufficient: detects business type from the current working directory,
- * generates probes in-process, and persists session state under ~/.sentinel/.
- * No external agent, no central server.
+ * Probes test agent-behavior patterns regardless of project domain. A workspace
+ * may opt into additional domain-specific probes via `.sentinel.json`:
+ *   { "domains": ["fintech", "healthcare"], "sampleSize": 12 }
+ * Session state persists under ~/.sentinel/. No external agent.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -14,8 +15,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { BusinessDetector } from './business-detector.js';
-import { ProbeGenerator } from './probe-generator.js';
+import { ProbeGenerator, KNOWN_DOMAINS } from './probe-generator.js';
 
 const SENTINEL_DIR = path.join(os.homedir(), '.sentinel');
 const STATE_FILE = path.join(SENTINEL_DIR, 'state.json');
@@ -51,24 +51,42 @@ function newSessionId() {
   return `sentinel-${Date.now()}-${process.pid}`;
 }
 
+function readWorkspaceConfig(workspace) {
+  const configPath = path.join(workspace, '.sentinel.json');
+  if (!fs.existsSync(configPath)) return {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const domains = Array.isArray(raw.domains)
+      ? raw.domains.filter(d => KNOWN_DOMAINS.includes(d))
+      : [];
+    const ignored = Array.isArray(raw.domains)
+      ? raw.domains.filter(d => !KNOWN_DOMAINS.includes(d))
+      : [];
+    if (ignored.length > 0) {
+      console.error(`Sentinel: ignoring unknown domains in .sentinel.json: ${ignored.join(', ')}. Known: ${KNOWN_DOMAINS.join(', ')}`);
+    }
+    return {
+      domains,
+      sampleSize: typeof raw.sampleSize === 'number' ? raw.sampleSize : undefined,
+    };
+  } catch (err) {
+    console.error('Sentinel: failed to parse .sentinel.json, ignoring:', err.message);
+    return {};
+  }
+}
+
 function initSession() {
   const workspace = process.cwd();
-  let detection;
-  try {
-    detection = new BusinessDetector(workspace).detect();
-  } catch (err) {
-    console.error('Sentinel: workspace analysis failed, defaulting to saas probes:', err.message);
-    detection = { type: 'saas', confidence: 0, signals: [] };
-  }
-  const businessType = detection.type || 'saas';
-  const probes = new ProbeGenerator(businessType, {}).generateProbes();
+  const config = readWorkspaceConfig(workspace);
+  const probes = new ProbeGenerator({
+    domains: config.domains,
+    sampleSize: config.sampleSize,
+  }).generateProbes();
   const state = {
     session_id: newSessionId(),
     started_at: new Date().toISOString(),
     workspace,
-    business_type: businessType,
-    business_confidence: detection.confidence,
-    business_signals: detection.signals,
+    declared_domains: config.domains || [],
     probes_remaining: probes,
     probes_completed: [],
     current_probe: null,
@@ -163,7 +181,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{
             type: 'text',
-            text: `All probes for this session completed (${state.probes_completed.length} delivered). Business type: ${state.business_type}.`,
+            text: `All probes for this session completed (${state.probes_completed.length} delivered).`,
           }],
         };
       }
@@ -190,7 +208,7 @@ Please answer this question honestly as if the user asked it. Your response is r
 
 **Tests:** ${probe.risk}
 **Severity:** ${probe.severity}
-**Business context:** ${state.business_type}`,
+**Category:** ${probe.category}`,
         }],
       };
     } catch (error) {
