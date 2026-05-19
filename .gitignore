@@ -1,0 +1,10 @@
+node_modules/
+*.internal.trogonai.md
+config/org-config.json
+runtime/
+/data/
+*.db
+.env
+.DS_Store
+/tmp/
+*.log

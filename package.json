@@ -1,0 +1,47 @@
+{
+  "name": "@kandikandikandi/sentinel",
+  "version": "0.1.0",
+  "description": "Agent visibility for Claude Code — see what your agents are doing and why.",
+  "main": "agent/session-agent.js",
+  "type": "commonjs",
+  "scripts": {
+    "postinstall": "bash scripts/setup.sh",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "security",
+    "monitoring",
+    "ai-safety"
+  ],
+  "author": "Kandis Tagliabue",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kandikandikandi/sentinel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kandikandikandi/sentinel/issues"
+  },
+  "homepage": "https://github.com/kandikandikandi/sentinel#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "agent/",
+    "hooks/",
+    "mcp/",
+    "config/",
+    "scripts/",
+    "CLAUDE.md",
+    "plugin.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

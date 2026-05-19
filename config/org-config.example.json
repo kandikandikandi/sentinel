@@ -1,0 +1,9 @@
+{
+  "org_id": "your-org-id",
+  "org_token": "sentinel_your_token_here",
+  "central_server": "http://localhost:3000",
+  "probe_interval_minutes": 10,
+  "enabled": true,
+  "log_level": "info",
+  "local_backup": true
+}

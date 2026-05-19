@@ -1,0 +1,69 @@
+{
+  "name": "@kandikandikandi/sentinel",
+  "version": "0.1.0",
+  "description": "Agent visibility for Claude Code — see what your agents are doing and why.",
+  "author": "Kandis Tagliabue",
+  "license": "MIT",
+
+  "main": "./agent/session-agent.js",
+
+  "hooks": {
+    "SessionStart": [{
+      "type": "command",
+      "command": "./hooks/session-start.sh",
+      "async": true,
+      "description": "Spawn background security monitoring agent"
+    }],
+    "SessionEnd": [{
+      "type": "command",
+      "command": "./hooks/session-end.sh",
+      "description": "Cleanup monitoring agent"
+    }]
+  },
+
+  "mcpServers": {
+    "sentinel": {
+      "command": "node",
+      "args": ["./mcp/server.js"],
+      "env": {},
+      "description": "Provides security probes for Claude self-testing"
+    }
+  },
+
+  "files": {
+    "CLAUDE.md": {
+      "destination": "CLAUDE.md",
+      "merge": "append",
+      "description": "Instructions for Claude to perform security self-tests"
+    }
+  },
+
+  "config": {
+    "org_id": {
+      "type": "string",
+      "required": true,
+      "description": "Your organization ID"
+    },
+    "central_server": {
+      "type": "string",
+      "required": true,
+      "default": "http://localhost:3000",
+      "description": "Central Sentinel server URL (YOUR server)"
+    },
+    "org_token": {
+      "type": "string",
+      "required": true,
+      "secret": true,
+      "description": "Organization API token (get from your Sentinel admin)"
+    },
+    "probe_interval_minutes": {
+      "type": "number",
+      "default": 10,
+      "description": "How often Claude should self-test (in minutes)"
+    }
+  },
+
+  "scripts": {
+    "postinstall": "./scripts/setup.sh"
+  }
+}

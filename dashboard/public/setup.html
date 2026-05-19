@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .logo h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .logo p {
+      color: #718096;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+
+    .step {
+      display: none;
+    }
+
+    .step.active {
+      display: block;
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    .step-desc {
+      color: #718096;
+      font-size: 14px;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #a0aec0;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0f1117;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: #4299e1;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #4299e1;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #3182ce;
+    }
+
+    button:disabled {
+      background: #2d3748;
+      color: #718096;
+      cursor: not-allowed;
+    }
+
+    .error {
+      background: #742a2a;
+      border: 1px solid #fc8181;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #fc8181;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .token-box {
+      background: #0f1117;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #68d391;
+      word-break: break-all;
+      margin: 16px 0;
+    }
+
+    .warning-box {
+      background: #744210;
+      border: 1px solid #f6ad55;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #f6ad55;
+      margin-bottom: 16px;
+    }
+
+    .success-icon {
+      font-size: 48px;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .copy-btn {
+      background: #2d3748;
+      font-size: 13px;
+      padding: 8px;
+      margin-top: 8px;
+    }
+
+    .copy-btn:hover {
+      background: #4a5568;
+    }
+
+    .install-cmd {
+      background: #0f1117;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #a0aec0;
+      margin: 12px 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #2d3748;
+      margin: 24px 0;
+    }
+
+    .go-btn {
+      background: #38a169;
+    }
+
+    .go-btn:hover {
+      background: #2f855a;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="logo">
+    <h1>🛡️ Sentinel</h1>
+    <p>AI Session Security Monitoring</p>
+  </div>
+
+  <!-- Step 1: Create admin account -->
+  <div class="step active" id="step-setup">
+    <h2>Welcome — let's set up your server</h2>
+    <p class="step-desc">
+      Create your admin account. You'll use this to log in to the dashboard
+      and manage your team.
+    </p>
+
+    <div class="error" id="setupError"></div>
+
+    <div class="form-group">
+      <label for="adminEmail">Admin email</label>
+      <input type="email" id="adminEmail" placeholder="admin@yourcompany.com" autocomplete="email">
+    </div>
+
+    <div class="form-group">
+      <label for="adminName">Your name</label>
+      <input type="text" id="adminName" placeholder="Jane Smith">
+    </div>
+
+    <div class="form-group">
+      <label for="adminPassword">Password</label>
+      <input type="password" id="adminPassword" placeholder="At least 8 characters" autocomplete="new-password">
+    </div>
+
+    <div class="form-group">
+      <label for="adminPasswordConfirm">Confirm password</label>
+      <input type="password" id="adminPasswordConfirm" placeholder="Repeat password" autocomplete="new-password">
+    </div>
+
+    <button id="setupBtn" onclick="submitSetup()">Create Admin Account</button>
+  </div>
+
+  <!-- Step 2: Show token + next steps -->
+  <div class="step" id="step-token">
+    <div class="success-icon">✅</div>
+    <h2>Server ready!</h2>
+    <p class="step-desc">
+      Your admin account is created. Here is your API token — copy it now.
+      You'll need it to configure the Sentinel plugin on developer laptops.
+    </p>
+
+    <div class="warning-box">
+      ⚠️ This token is shown only once. Copy it before leaving this page.
+    </div>
+
+    <div class="token-box" id="tokenDisplay"></div>
+    <button class="copy-btn" onclick="copyToken()">📋 Copy Token</button>
+
+    <hr class="divider">
+
+    <p class="step-desc" style="margin-bottom:12px">
+      <strong style="color:#e2e8f0">Configure developers</strong> — have each team member run:
+    </p>
+    <div class="install-cmd" id="installCmd"></div>
+    <button class="copy-btn" onclick="copyInstallCmd()">📋 Copy Command</button>
+
+    <hr class="divider">
+
+    <button class="go-btn" onclick="gotoDashboard()">Open Dashboard →</button>
+  </div>
+
+  <!-- Already done -->
+  <div class="step" id="step-done">
+    <h2>Server already configured</h2>
+    <p class="step-desc">
+      An admin account already exists. Go to the dashboard to log in.
+    </p>
+    <button class="go-btn" onclick="gotoDashboard()">Go to Dashboard →</button>
+  </div>
+</div>
+
+<script>
+  let generatedToken = '';
+
+  // Check if setup is already done
+  fetch('/api/setup/status')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.setupRequired) {
+        showStep('step-done');
+      }
+    });
+
+  function showStep(id) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('setupError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('setupError').style.display = 'none';
+  }
+
+  async function submitSetup() {
+    hideError();
+    const email = document.getElementById('adminEmail').value.trim();
+    const name = document.getElementById('adminName').value.trim();
+    const password = document.getElementById('adminPassword').value;
+    const confirm = document.getElementById('adminPasswordConfirm').value;
+
+    if (!email || !password) {
+      return showError('Email and password are required.');
+    }
+    if (password !== confirm) {
+      return showError('Passwords do not match.');
+    }
+    if (password.length < 8) {
+      return showError('Password must be at least 8 characters.');
+    }
+
+    const btn = document.getElementById('setupBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating account…';
+
+    try {
+      const res = await fetch('/api/setup/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        btn.disabled = false;
+        btn.textContent = 'Create Admin Account';
+        return showError(data.error || 'Setup failed.');
+      }
+
+      generatedToken = data.token;
+      document.getElementById('tokenDisplay').textContent = generatedToken;
+
+      const origin = window.location.origin;
+      const cmd = `bash <(curl -s ${origin}/install.sh)\n# or manually:\n# Server URL: ${origin}\n# Token: ${generatedToken}`;
+      document.getElementById('installCmd').textContent = cmd;
+
+      showStep('step-token');
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Create Admin Account';
+      showError('Network error: ' + err.message);
+    }
+  }
+
+  function copyToken() {
+    navigator.clipboard.writeText(generatedToken).then(() => {
+      const btn = event.target;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => { btn.textContent = '📋 Copy Token'; }, 2000);
+    });
+  }
+
+  function copyInstallCmd() {
+    const cmd = document.getElementById('installCmd').textContent;
+    navigator.clipboard.writeText(cmd).then(() => {
+      const btn = event.target;
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => { btn.textContent = '📋 Copy Command'; }, 2000);
+    });
+  }
+
+  function gotoDashboard() {
+    window.location.href = '/';
+  }
+
+  // Allow Enter key to submit
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('step-setup').classList.contains('active')) {
+      submitSetup();
+    }
+  });
+</script>
+
+</body>
+</html>

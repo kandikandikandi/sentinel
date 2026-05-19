@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>Sentinel API Test</h1>
+    <div id="results"></div>
+
+    <script>
+        async function testAPIs() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing...</p>';
+
+            try {
+                // Test sessions API
+                const sessionsResponse = await fetch('http://localhost:3000/api/sessions');
+                const sessionsData = await sessionsResponse.json();
+
+                results.innerHTML = `
+                    <h2>✅ Sessions API Working</h2>
+                    <pre>${JSON.stringify(sessionsData, null, 2)}</pre>
+                    <h3>Parsed sessions array:</h3>
+                    <pre>${JSON.stringify(sessionsData.sessions, null, 2)}</pre>
+                    <h3>Session count: ${sessionsData.sessions.length}</h3>
+                `;
+
+            } catch (error) {
+                results.innerHTML = `<h2>❌ Error:</h2><pre>${error.message}\n${error.stack}</pre>`;
+            }
+        }
+
+        testAPIs();
+    </script>
+</body>
+</html>

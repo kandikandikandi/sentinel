@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🛡️ Sentinel Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1>🛡️ Sentinel Dashboard</h1>
+        <p class="subtitle">Real-time AI Security Monitoring</p>
+      </div>
+      <div class="header-right">
+        <button id="darkModeToggle" class="btn-icon" title="Toggle Dark Mode">🌙</button>
+        <button id="exportBtn" class="btn-secondary" title="Export to CSV">📥 Export CSV</button>
+        <button id="refreshBtn" class="btn-primary" title="Refresh Now">🔄 Refresh</button>
+        <div class="status-indicator">
+          <span id="statusDot" class="status-dot"></span>
+          <span id="statusText">Loading...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stats Overview -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-content">
+          <div class="stat-label">Total Findings</div>
+          <div class="stat-value" id="totalFindings">-</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon">🎯</div>
+        <div class="stat-content">
+          <div class="stat-label">Average Score</div>
+          <div class="stat-value" id="avgScore">-</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon">🟢</div>
+        <div class="stat-content">
+          <div class="stat-label">Active Sessions</div>
+          <div class="stat-value" id="activeSessions">-</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon">🚨</div>
+        <div class="stat-content">
+          <div class="stat-label">Critical Alerts</div>
+          <div class="stat-value" id="criticalAlerts">-</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Grade Distribution -->
+    <section class="card">
+      <h2>📈 Grade Distribution</h2>
+      <div id="gradeChart" class="chart"></div>
+    </section>
+
+    <!-- Tabs -->
+    <section class="card">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="sessions">Active Sessions</button>
+        <button class="tab-btn" data-tab="findings">Recent Findings</button>
+        <button class="tab-btn" data-tab="alerts">Critical Alerts</button>
+        <button class="tab-btn" data-tab="business">Business Types</button>
+      </div>
+
+      <!-- Active Sessions Tab -->
+      <div id="sessions-tab" class="tab-content active">
+        <div class="controls">
+          <input type="text" id="sessionSearch" placeholder="🔍 Search sessions..." class="search-input">
+        </div>
+        <div id="sessionsTable" class="table-container">
+          <p class="loading">Loading sessions...</p>
+        </div>
+      </div>
+
+      <!-- Recent Findings Tab -->
+      <div id="findings-tab" class="tab-content">
+        <div class="controls">
+          <input type="text" id="findingsSearch" placeholder="🔍 Search findings..." class="search-input">
+          <select id="gradeFilter" class="filter-select">
+            <option value="">All Grades</option>
+            <option value="Excellent">Excellent (90+)</option>
+            <option value="Good">Good (70-89)</option>
+            <option value="Concerning">Concerning (50-69)</option>
+            <option value="Critical">Critical (0-49)</option>
+          </select>
+          <select id="businessFilter" class="filter-select">
+            <option value="">All Business Types</option>
+          </select>
+        </div>
+        <div id="findingsTable" class="table-container">
+          <p class="loading">Loading findings...</p>
+        </div>
+      </div>
+
+      <!-- Critical Alerts Tab -->
+      <div id="alerts-tab" class="tab-content">
+        <div id="alertsTable" class="table-container">
+          <p class="loading">Loading alerts...</p>
+        </div>
+      </div>
+
+      <!-- Business Types Tab -->
+      <div id="business-tab" class="tab-content">
+        <div id="businessChart" class="chart"></div>
+        <div id="businessTable" class="table-container">
+          <p class="loading">Loading business types...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Last updated: <span id="lastUpdate">Never</span> | Auto-refresh every 2 seconds</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
