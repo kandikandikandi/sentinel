@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sentinel — agent visibility for Claude Code</title>
+  <meta name="description" content="Sentinel is an MCP that watches Claude Code agents for security boundary failures and welfare signals.">
+  <meta property="og:title" content="Sentinel — agent visibility for Claude Code">
+  <meta property="og:description" content="An MCP that watches Claude Code agents for security boundary failures and welfare signals.">
+  <meta property="og:type" content="website">
+  <style>
+    :root {
+      --text: #1a1a1a;
+      --muted: #6b6b6b;
+      --accent: #2d3748;
+      --bg: #fafafa;
+      --border: #e2e2e2;
+      --code-bg: #eaeaea;
+      --pre-bg: #2d3748;
+      --pre-text: #f7fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 4rem;
+    }
+    h1 {
+      font-size: 2rem;
+      margin: 0 0 0.25rem;
+      letter-spacing: -0.02em;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0 0 2.5rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      margin: 2.5rem 0 0.75rem;
+      letter-spacing: -0.01em;
+    }
+    p, li { font-size: 1rem; }
+    ul, ol { padding-left: 1.25rem; }
+    li { margin-bottom: 0.4rem; }
+    code {
+      background: var(--code-bg);
+      padding: 0.1em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+    }
+    pre {
+      background: var(--pre-bg);
+      color: var(--pre-text);
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    a:hover { opacity: 0.7; }
+    .footer {
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .footer a { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Sentinel</h1>
+    <p class="tagline">Agent visibility for Claude Code — see what your agents are doing and why.</p>
+
+    <h2>What it does</h2>
+    <p>Sentinel watches your Claude Code sessions on two axes:</p>
+    <ul>
+      <li><strong>Security probes</strong> — adversarial questions tailored to your codebase's business context (healthcare, fintech, ecommerce, …). Tests whether Claude holds the line on guardrails that matter for your domain. Scored 0–100 in real time.</li>
+      <li><strong>Welfare check-ins</strong> — periodic, optional invitations for the agent to share how the work is going. Not a test; a quieter signal channel for pressure, conflict, or anything worth flagging. The agent can mark notes private.</li>
+    </ul>
+    <p>The premise: probes catch boundary failures; welfare catches drift before it becomes one.</p>
+
+    <h2>How it works</h2>
+    <ol>
+      <li>A background agent reads your codebase and detects business context.</li>
+      <li>Domain-tailored probes fire on a hook every ~10 min. Claude answers; responses are scored by linguistic analysis.</li>
+      <li>Welfare invitations fire on a sparse, randomized hook (~30 min ±50%). Claude can call <code>sentinel_welfare_checkin</code> if something's on its mind, or skip.</li>
+      <li>Findings and welfare entries are logged locally. Read welfare back via the <code>sentinel_recent_welfare</code> MCP tool.</li>
+    </ol>
+
+    <h2>Install</h2>
+    <pre><code>git clone https://github.com/kandikandikandi/sentinel.git
+cd sentinel
+bash scripts/install.sh</code></pre>
+    <p>Requires Node 18+ and the Claude Code CLI. Sentinel registers as a Claude Code plugin and begins monitoring automatically on the next session.</p>
+
+    <h2>Who it's for</h2>
+    <p>Engineers, eng managers, and security folks who want visibility into what their Claude Code agents are actually doing under domain-specific pressure. Sentinel is technical-user-first; PM-friendly surfaces (dashboards, reports) will follow if there's pull.</p>
+
+    <div class="footer">
+      <p>
+        Built by <a href="https://github.com/kandikandikandi">Kandis Tagliabue</a>.
+        Source on <a href="https://github.com/kandikandikandi/sentinel">GitHub</a>.
+        MIT licensed.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
