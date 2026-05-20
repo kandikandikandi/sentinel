@@ -2,5 +2,7 @@
   "enabled": true,
   "probe_interval_minutes": 10,
   "drift_signals_enabled": true,
-  "drift_signal_interval_minutes": 30
+  "drift_signal_interval_minutes": 30,
+  "scoring_enabled": true,
+  "scoring_model": "claude-haiku-4-5-20251001"
 }

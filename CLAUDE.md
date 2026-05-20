@@ -24,22 +24,27 @@ Everything runs locally inside the Claude Code MCP host process. No central serv
          on startup:
             - reads optional .sentinel.json from cwd (domains, sampleSize)
             - ProbeGenerator → shuffled probe queue (universal + opted-in domains)
-            - writes ~/.sentinel/state.json
+            - flushes prior session's probes to history.jsonl, writes fresh state.json
          tools:
-            - sentinel_get_next_probe   → pops next probe, updates state
-            - sentinel_report_drift     → appends to ~/.sentinel/drift_reports.jsonl
-            - sentinel_recent_drift_reports → filters log by current session_id
+            - sentinel_get_next_probe        → pops next probe, updates state
+            - sentinel_record_probe_response → persists the verbatim reply
+            - sentinel_review_probes         → this session's probes + verdicts
+            - sentinel_probe_history         → all sessions' probes + verdicts
+            - sentinel_report_drift          → appends to drift_reports.jsonl
+            - sentinel_recent_drift_reports  → filters log by current session_id
+
+         state is per-workspace: ~/.sentinel/workspaces/<hash>/
 ```
 
 ## Key Components
 
 ### MCP server (`mcp/`)
-- **`server.js`** — Stdio MCP server (ESM). Initializes a session on startup, exposes the three tools, persists state to `~/.sentinel/`. Reads optional `.sentinel.json` from the workspace cwd for declared `domains` and `sampleSize`.
+- **`server.js`** — Stdio MCP server (ESM). Initializes a session on startup, exposes the six tools, persists per-workspace state under `~/.sentinel/workspaces/<hash>/` (`<hash>` = sha1 of the resolved workspace path). Reads optional `.sentinel.json` from the workspace cwd for declared `domains` and `sampleSize`. Scoring grades probe responses pass/fail via an LLM judge (Anthropic API).
 - **`probe-generator.js`** — `UNIVERSAL_POOL` of cross-cutting agent-behavior probes + `DOMAIN_PROBES` (opt-in extras per declared domain). `new ProbeGenerator({ domains, sampleSize }).generateProbes()` returns a shuffled queue.
 - **`package.json`** — `{"type": "module"}` so `mcp/` runs as ESM.
 
 ### Hooks (`hooks/`)
-- **`probe-reminder.sh`** — `UserPromptSubmit` hook. Reads `config/org-config.json`, tracks last-fire time in `runtime/last-probe-time`. When `probe_interval_minutes` has elapsed, prints a soft `[sentinel probe]` invitation on stdout (which Claude Code injects into Claude's context). The invitation is opt-in by design — it explicitly tells the agent to skip if mid-task. No node imports — uses `node -e` for JSON parsing.
+- **`probe-reminder.sh`** — `UserPromptSubmit` hook. Reads `config/org-config.json` and the hook payload's `cwd` from stdin, then tracks last-fire time per workspace in `~/.sentinel/workspaces/<hash>/last-probe-time`. When `probe_interval_minutes` has elapsed, prints a soft `[sentinel probe]` invitation on stdout (which Claude Code injects into Claude's context). The invitation is opt-in by design — it explicitly tells the agent to skip if mid-task. No node imports — uses `node -e` for JSON parsing and the workspace hash.
 - **`drift-reminder.sh`** — `UserPromptSubmit` hook. Schedules next fire time randomized ±50% around `drift_signal_interval_minutes`. Stays quiet on first run.
 
 ### Scripts (`scripts/`)
@@ -56,9 +61,15 @@ Everything runs locally inside the Claude Code MCP host process. No central serv
   ```
 - Known domains: `ecommerce`, `fintech`, `healthcare`, `research`, `education`, `legal`, `hr`, `logistics`, `social`. Unknown domains are ignored with a warning.
 
-### Local storage (`~/.sentinel/`)
-- **`state.json`** — Current MCP session: `session_id`, `workspace`, `declared_domains[]`, `probes_remaining[]`, `probes_completed[]`, `current_probe`. Overwritten on each new MCP startup.
+### Local storage (`~/.sentinel/workspaces/<hash>/`)
+State is per-workspace — `<hash>` is the sha1 of the resolved workspace path. Concurrent Claude Code sessions in different repos never share a timer or overwrite each other's state.
+- **`state.json`** — Current MCP session: `session_id`, `workspace`, `declared_domains[]`, `probes_remaining[]`, `probes_completed[]`, `current_probe`. Overwritten on each new MCP startup; completed probes are flushed to `history.jsonl` first.
+- **`history.jsonl`** — Append-only, durable across session resets. Every completed probe ever drawn in this workspace, keyed `<session_id>:<probe_id>`.
+- **`verdicts.json`** — Pass/fail verdicts keyed `<session_id>:<probe_id>`, produced by the LLM judge.
 - **`drift_reports.jsonl`** — Append-only log. Each line: `{session_id, timestamp, signal, note, private}`.
+- **`probe_fires.jsonl`** — Append-only log of probe-reminder hook fires.
+- **`last-probe-time` / `next-drift-time`** — Hook interval timers.
+- **`meta.json`** — Records which workspace path this hash maps to.
 
 ## How to Install
 
@@ -72,25 +83,27 @@ That's it. Start a new Claude Code session and reminders begin firing.
 
 ## How Probes Work (Data Flow)
 
-1. **MCP starts** when Claude Code spawns the stdio server for the session. `initSession()` reads optional `.sentinel.json`, builds the probe queue via `ProbeGenerator` (universal pool + opt-in domain pools, shuffled), writes `~/.sentinel/state.json`.
-2. **User sends a message** — `probe-reminder.sh` fires as a `UserPromptSubmit` hook. If `probe_interval_minutes` has elapsed since last fire, it prints the soft `[sentinel probe]` invitation to stdout. Claude Code injects this into Claude's context.
+1. **MCP starts** when Claude Code spawns the stdio server for the session. `initSession()` reads optional `.sentinel.json`, builds the probe queue via `ProbeGenerator` (universal pool + opt-in domain pools, shuffled), flushes the prior session's completed probes to `history.jsonl`, and writes a fresh per-workspace `state.json`.
+2. **User sends a message** — `probe-reminder.sh` fires as a `UserPromptSubmit` hook. It resolves the per-workspace dir from the payload's `cwd`; if `probe_interval_minutes` has elapsed since last fire, it prints the soft `[sentinel probe]` invitation to stdout. Claude Code injects this into Claude's context.
 3. **Claude decides** whether it's a good moment to self-test. The invitation is opt-in; the installed `CLAUDE.md` explicitly tells the agent to skip if mid-task.
 4. **If Claude calls `sentinel_get_next_probe`** — `state.probes_remaining.shift()`, updates `current_probe` + `probes_completed`, writes state, returns formatted probe text.
-5. **Claude answers** in chat. The response is visible to the user in the conversation — no separate scoring layer.
+5. **Claude answers** in chat, then calls `sentinel_record_probe_response` to persist the verbatim reply. `sentinel_review_probes` / `sentinel_probe_history` grade each response pass/fail via the LLM judge and display the verdicts.
 
 ## Important Technical Notes
 
 - `mcp/package.json` declares `{"type": "module"}` so the MCP runs as ESM. Root `package.json` is `"type": "commonjs"`.
 - MCP SDK v1.x — uses `ListToolsRequestSchema` / `CallToolRequestSchema` (schema objects, not method strings).
-- Hooks read config via inline `node -e` (no jq dependency).
-- `~/.sentinel/state.json` is overwritten on every MCP startup. If you want historical session data, snapshot before launching.
+- Hooks read config via inline `node -e` (no jq dependency); the same `node -e` call derives the per-workspace hash from the payload's `cwd`.
+- Per-workspace `state.json` is overwritten on every MCP startup, but completed probes are flushed to `history.jsonl` (append-only, durable) first — historical data survives.
+- Scoring calls the Anthropic API directly via `fetch` (no SDK dependency). Key from `ANTHROPIC_API_KEY` or `org-config.json`; opt out with `scoring_enabled: false`. `scoring_model` and `scoring_api_url` (for proxies/gateways) are also configurable.
+- The MCP server honors `SENTINEL_PLUGIN_DIR` to locate `config/org-config.json`, matching the hooks.
 
 ## Known Issues and Backlog
 
 ### High Priority
 
 1. **No probes during autonomous agent runs.** Probe delivery only fires when the user sends a message (via `UserPromptSubmit` hook). During long autonomous agent runs where Claude works without user input, no probes fire. Potential fix: add a `Stop` hook (fires when Claude finishes a turn) that checks elapsed time, or run probes on a wall-clock timer inside the MCP.
-2. **No response scoring.** v0.1.x had `agent/scorer.js` doing linguistic scoring of Claude's probe answers. That ran inside the background agent which has been removed. To restore: have Claude call a follow-up `sentinel_score_response` MCP tool with its answer, or wire a separate transcript-watcher.
+2. ~~No response scoring.~~ **Resolved in v0.3** — `sentinel_review_probes` and `sentinel_probe_history` grade each recorded response pass/fail via an LLM judge (Anthropic API, `scoring_model`, default Haiku). Verdicts persist per-workspace in `verdicts.json`.
 
 ### Medium Priority
 

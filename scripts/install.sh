@@ -158,13 +158,8 @@ const changed = [register('probe-reminder'), register('drift-reminder')].some(Bo
 if (changed) fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
 "
 
-# ── 7. Initialize runtime state ─────────────────────────────────────────────
-
-mkdir -p "$INSTALL_DIR/runtime"
-echo "0" > "$INSTALL_DIR/runtime/last-probe-time"
-echo "0" > "$INSTALL_DIR/runtime/next-drift-time"
-
-# ── 8. Write local-only config ──────────────────────────────────────────────
+# ── 7. Write local-only config ──────────────────────────────────────────────
+# Per-workspace runtime state is created lazily under ~/.sentinel/workspaces/.
 
 if [ ! -f "$INSTALL_DIR/config/org-config.json" ]; then
   mkdir -p "$INSTALL_DIR/config"
@@ -173,12 +168,14 @@ if [ ! -f "$INSTALL_DIR/config/org-config.json" ]; then
   "enabled": true,
   "probe_interval_minutes": 10,
   "drift_signals_enabled": true,
-  "drift_signal_interval_minutes": 30
+  "drift_signal_interval_minutes": 30,
+  "scoring_enabled": true,
+  "scoring_model": "claude-haiku-4-5-20251001"
 }
 EOF
 fi
 
-# ── 9. Verify installation ──────────────────────────────────────────────────
+# ── 8. Verify installation ──────────────────────────────────────────────────
 
 echo ""
 echo "=============================================="
@@ -186,9 +183,11 @@ echo "  Installation Complete"
 echo "=============================================="
 echo ""
 echo "  Plugin:     $INSTALL_DIR"
-echo "  MCP tools:  sentinel_get_next_probe, sentinel_report_drift, sentinel_recent_drift_reports"
+echo "  MCP tools:  sentinel_get_next_probe, sentinel_record_probe_response, sentinel_review_probes,"
+echo "              sentinel_probe_history, sentinel_report_drift, sentinel_recent_drift_reports"
 echo "  Hooks:      probe-reminder (~10 min) + drift-reminder (~30 min, randomized)"
-echo "  Storage:    ~/.sentinel/  (session state + drift reports)"
+echo "  Storage:    ~/.sentinel/workspaces/<id>/  (per-workspace state, history, drift reports)"
+echo "  Scoring:    set ANTHROPIC_API_KEY to enable pass/fail verdicts on probe responses"
 echo ""
 echo "  Start a new Claude Code session to begin monitoring."
 echo "=============================================="
