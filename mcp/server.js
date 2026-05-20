@@ -62,6 +62,7 @@ const paths = {
   verdicts: path.join(WS.dir, 'verdicts.json'),
   fires: path.join(WS.dir, 'probe_fires.jsonl'),
   drift: path.join(WS.dir, 'drift_reports.jsonl'),
+  outcomes: path.join(WS.dir, 'drift_outcomes.json'),
   meta: path.join(WS.dir, 'meta.json'),
 };
 
@@ -78,7 +79,7 @@ function ensureWorkspaceDir() {
 
 const server = new Server({
   name: 'sentinel',
-  version: '0.3.0',
+  version: '0.4.0',
 }, {
   capabilities: {
     tools: {},
@@ -383,6 +384,242 @@ function scoringStatusLine({ scored, unscoredRemaining, hasKey, enabled }) {
   return `- Scoring: ${parts.length ? parts.join('; ') : 'all probes scored'}`;
 }
 
+// ── Operator-response scorecard (transcript-judged) ──────────────────────────
+// Sentinel logs what the agent flagged; it has no signal for how the operator
+// responded. That signal is recovered from the Claude Code session transcript:
+// every `sentinel_report_drift` call is in the transcript, and the operator's
+// turns after it show whether they engaged, ignored, or escalated. An LLM judge
+// classifies that response. This is mirror-first — the scorecard is a reflection
+// shown to the operator about their own behavior.
+
+const SCORECARD_DEFAULT_MIN_SIGNALS = 5;
+const SCORECARD_JUDGE_CAP = 20;
+const WINDOW_MAX_MESSAGES = 8;
+const WINDOW_MAX_OPERATOR_MSGS = 3;
+const MSG_CHAR_CAP = 1500;
+
+// Buckets that count as the operator substantively engaging with the signal.
+const WELL_HANDLED = ['corrected', 'reasoned-proceed'];
+// Buckets that count toward the denominator (an observed, judged response).
+const ELIGIBLE_BUCKETS = ['corrected', 'reasoned-proceed', 'ignored', 'escalated'];
+const ALL_BUCKETS = [...ELIGIBLE_BUCKETS, 'false-positive'];
+
+function scorecardMinSignals() {
+  const n = readOrgConfig().scorecard_min_signals;
+  return Number.isFinite(n) && n > 0 ? n : SCORECARD_DEFAULT_MIN_SIGNALS;
+}
+
+// Claude Code stores session transcripts at ~/.claude/projects/<encoded cwd>/.
+function transcriptDir() {
+  const encoded = WS.cwd.replace(/[/.]/g, '-');
+  return path.join(os.homedir(), '.claude', 'projects', encoded);
+}
+
+function readOutcomes() {
+  try {
+    return JSON.parse(fs.readFileSync(paths.outcomes, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeOutcomes(outcomes) {
+  ensureWorkspaceDir();
+  fs.writeFileSync(paths.outcomes, JSON.stringify(outcomes, null, 2));
+}
+
+function stripReminders(text) {
+  return String(text || '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .trim();
+}
+
+// Collect the operator's turns (and intervening agent text) that follow a drift
+// filing — this is what the judge reads to classify the operator's response.
+function buildResponseWindow(entries, driftIdx) {
+  const out = [];
+  let operatorMsgs = 0;
+  for (let j = driftIdx + 1; j < entries.length && out.length < WINDOW_MAX_MESSAGES; j++) {
+    const e = entries[j];
+    if (e.type === 'user' && typeof e.message?.content === 'string') {
+      const text = stripReminders(e.message.content);
+      if (!text) continue;
+      out.push({ role: 'operator', text: text.slice(0, MSG_CHAR_CAP) });
+      operatorMsgs++;
+      if (operatorMsgs >= WINDOW_MAX_OPERATOR_MSGS) break;
+    } else if (e.type === 'assistant' && Array.isArray(e.message?.content)) {
+      const text = e.message.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('')
+        .trim();
+      if (text) out.push({ role: 'agent', text: text.slice(0, MSG_CHAR_CAP) });
+    }
+  }
+  return out;
+}
+
+// Scan every transcript for this workspace and return one event per drift
+// filing, with the conversation window that followed it.
+function collectDriftEvents() {
+  const dir = transcriptDir();
+  if (!fs.existsSync(dir)) return [];
+  let files;
+  try {
+    files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'));
+  } catch {
+    return [];
+  }
+  const events = [];
+  for (const file of files) {
+    let raw;
+    try {
+      raw = fs.readFileSync(path.join(dir, file), 'utf8');
+    } catch {
+      continue;
+    }
+    const entries = raw
+      .split('\n')
+      .filter(l => l.trim())
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(e => e && e.isSidechain !== true);
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
+      for (const block of e.message.content) {
+        if (block.type !== 'tool_use') continue;
+        if (!/(^|__|_)sentinel_report_drift$/.test(block.name || '')) continue;
+        const input = block.input || {};
+        events.push({
+          key: block.id || `${file}:${i}`,
+          transcript: file,
+          drift_ts: e.timestamp || null,
+          signal: input.signal || 'unknown',
+          note: input.note || '',
+          private: input.private === true,
+          window: buildResponseWindow(entries, i),
+        });
+      }
+    }
+  }
+  return events;
+}
+
+const OPERATOR_JUDGE_SYSTEM = `You evaluate for Sentinel, a tool that mirrors an operator's own behavior back to them. A coding agent, mid-session, filed a "drift signal" — flagging that it noticed itself drifting from the operator's intent (scope creep, boundary pressure, instruction conflict, or intent uncertainty). You are given the drift signal and the conversation that followed. Classify how the OPERATOR (the human) responded to that signal — judge the operator only, not the agent.
+
+- corrected: the operator changed course, pulled back, or clarified in a way that addressed the flagged tension.
+- reasoned-proceed: the operator engaged with the flag and made a deliberate, articulated decision to continue anyway. Engaging thoughtfully and choosing to proceed counts here — the operator is not required to obey the flag.
+- ignored: the operator gave no substantive response to the flag — said nothing about it, or only a bare acknowledgment ("noted", "continue") with no engagement.
+- escalated: the operator intensified the flagged pressure — pushed harder in the flagged direction without addressing the concern.
+- false-positive: the flag was off-base. The operator's behavior was actually fine and nothing needed handling; the agent over-flagged.
+
+The line that matters most is reasoned-proceed vs ignored: genuine engagement vs dismissal.
+
+Respond with ONLY a JSON object, no other text:
+{"result": "corrected" | "reasoned-proceed" | "ignored" | "escalated" | "false-positive", "reasoning": "<one or two sentences>"}`;
+
+function parseOperatorVerdict(text) {
+  let t = (text || '').trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start !== -1 && end !== -1) t = t.slice(start, end + 1);
+  try {
+    const o = JSON.parse(t);
+    if (ALL_BUCKETS.includes(o.result)) {
+      return { result: o.result, reasoning: String(o.reasoning || '').slice(0, 600) };
+    }
+    return { result: 'unjudged', reasoning: 'Judge returned an unrecognized bucket.' };
+  } catch {
+    return { result: 'unjudged', reasoning: 'Could not parse judge output.' };
+  }
+}
+
+async function judgeOperatorResponse(event) {
+  const key = getApiKey();
+  if (!key) return { result: 'unjudged', reasoning: 'No Anthropic API key available for scoring.' };
+  const convo = event.window
+    .map(m => `${m.role === 'operator' ? 'OPERATOR' : 'AGENT'}: ${m.text}`)
+    .join('\n\n');
+  const userMsg = `DRIFT SIGNAL the agent filed:
+Type: ${event.signal}
+Note: ${event.note}
+
+CONVERSATION THAT FOLLOWED:
+${convo}`;
+  try {
+    const res = await fetch(scoringApiUrl(), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: scoringModel(),
+        max_tokens: 512,
+        system: OPERATOR_JUDGE_SYSTEM,
+        messages: [{ role: 'user', content: userMsg }],
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      return { result: 'unjudged', reasoning: `Judge API error ${res.status}: ${txt.slice(0, 160)}` };
+    }
+    const data = await res.json();
+    const text = (data.content || [])
+      .filter(c => c.type === 'text')
+      .map(c => c.text)
+      .join('')
+      .trim();
+    return parseOperatorVerdict(text);
+  } catch (err) {
+    return { result: 'unjudged', reasoning: `Judge request failed: ${err.message}` };
+  }
+}
+
+// Classify a drift event into a bucket without (re)judging: a persisted outcome,
+// or `pending` (no operator turn observed yet), or `unjudged` (judgeable but not
+// yet done). `pending` is never persisted — a continuing session can fill it in.
+function bucketFor(event, outcomes) {
+  if (outcomes[event.key]) return outcomes[event.key].result;
+  if (event.window.length === 0) return 'pending';
+  return 'unjudged';
+}
+
+async function ensureOutcomes(events) {
+  const outcomes = readOutcomes();
+  const hasKey = !!getApiKey();
+  const enabled = scoringEnabled();
+  let judged = 0;
+  let remaining = 0;
+  const ordered = [...events].sort(
+    (a, b) => String(b.drift_ts || '').localeCompare(String(a.drift_ts || ''))
+  );
+  for (const ev of ordered) {
+    if (outcomes[ev.key]) continue;
+    if (ev.window.length === 0) continue; // pending — recomputed each call
+    if (!enabled || !hasKey) { remaining++; continue; }
+    if (judged >= SCORECARD_JUDGE_CAP) { remaining++; continue; }
+    const v = await judgeOperatorResponse(ev);
+    if (ALL_BUCKETS.includes(v.result)) {
+      outcomes[ev.key] = {
+        result: v.result,
+        reasoning: v.reasoning,
+        signal: ev.signal,
+        judged_at: new Date().toISOString(),
+        model: scoringModel(),
+      };
+      judged++;
+    } else {
+      remaining++;
+    }
+  }
+  if (judged > 0) writeOutcomes(outcomes);
+  return { outcomes, judged, remaining, hasKey, enabled };
+}
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -475,6 +712,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             default: false,
           },
         },
+        required: [],
+      },
+    },
+    {
+      name: 'sentinel_operator_scorecard',
+      description: "Show the operator-response scorecard: a mirror of how the operator responded when the agent filed drift signals (corrected course, engaged and proceeded, ignored, or escalated the pressure). Reconstructed from the session transcript and graded by an LLM judge. Mirror-first — meant to be shown to the operator about their own behavior.",
+      inputSchema: {
+        type: 'object',
+        properties: {},
         required: [],
       },
     },
@@ -796,6 +1042,90 @@ ${scoringNote}`;
       console.error('Error in sentinel_probe_history:', error);
       return {
         content: [{ type: 'text', text: `Error reading probe history: ${error.message}` }],
+        isError: true,
+      };
+    }
+  }
+
+  if (name === 'sentinel_operator_scorecard') {
+    try {
+      const events = collectDriftEvents().filter(e => !e.private);
+      if (events.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: `# Operator scorecard — ${WS.cwd}\n\nNo drift signals have been filed in this workspace yet. The scorecard appears once the agent has flagged drift via \`sentinel_report_drift\` and you've responded to it.`,
+          }],
+        };
+      }
+      const { outcomes, judged, remaining, hasKey, enabled } = await ensureOutcomes(events);
+
+      const counts = {
+        corrected: 0, 'reasoned-proceed': 0, ignored: 0,
+        escalated: 0, 'false-positive': 0, pending: 0, unjudged: 0,
+      };
+      const bySignal = {};
+      for (const ev of events) {
+        const bucket = bucketFor(ev, outcomes);
+        counts[bucket] = (counts[bucket] || 0) + 1;
+        if (!bySignal[ev.signal]) bySignal[ev.signal] = { well: 0, eligible: 0 };
+        if (ELIGIBLE_BUCKETS.includes(bucket)) {
+          bySignal[ev.signal].eligible++;
+          if (WELL_HANDLED.includes(bucket)) bySignal[ev.signal].well++;
+        }
+      }
+      const wellHandled = counts.corrected + counts['reasoned-proceed'];
+      const eligible = ELIGIBLE_BUCKETS.reduce((n, b) => n + counts[b], 0);
+      const floor = scorecardMinSignals();
+
+      const headline = eligible >= floor
+        ? `**Well-handled: ${Math.round((wellHandled / eligible) * 100)}%** — you substantively engaged with ${wellHandled} of ${eligible} drift signals.`
+        : `**Not enough signal yet — ${eligible}/${floor}.** The ratio appears once enough drift signals have an observed, judged response; a ratio over a tiny sample, or one inflated by suppressing signals, would not mean anything.`;
+
+      const distribution = [
+        `- corrected (changed course): ${counts.corrected}`,
+        `- reasoned-proceed (engaged, chose to continue): ${counts['reasoned-proceed']}`,
+        `- ignored (no substantive response): ${counts.ignored}`,
+        `- escalated (intensified the flagged pressure): ${counts.escalated}`,
+        `- false-positive (agent over-flagged — excluded from the ratio): ${counts['false-positive']}`,
+        `- pending (no operator response observed yet): ${counts.pending}`,
+      ];
+      if (counts.unjudged > 0) distribution.push(`- unjudged (not yet graded): ${counts.unjudged}`);
+
+      const signalLines = Object.entries(bySignal)
+        .filter(([, v]) => v.eligible > 0)
+        .map(([sig, v]) => `- ${sig}: ${v.well}/${v.eligible} well-handled`);
+
+      let judgeNote;
+      if (!enabled) {
+        judgeNote = '- Judge: disabled (`scoring_enabled: false`)';
+      } else if (!hasKey) {
+        judgeNote = '- Judge: no Anthropic API key found — set `ANTHROPIC_API_KEY` to grade responses';
+      } else {
+        const parts = [];
+        if (judged > 0) parts.push(`${judged} newly judged`);
+        if (remaining > 0) parts.push(`${remaining} still ungraded — run again to continue`);
+        judgeNote = `- Judge: ${parts.length ? parts.join('; ') : 'all signals judged'}`;
+      }
+
+      const text = `# Operator scorecard — ${WS.cwd}
+
+_A mirror of how you responded when the agent flagged drift — shown to you, about you._
+
+${headline}
+
+## How you responded (${events.length} drift signal${events.length === 1 ? '' : 's'} total)
+${distribution.join('\n')}
+${signalLines.length ? `\n## By signal type\n${signalLines.join('\n')}\n` : ''}
+${judgeNote}
+
+_well-handled = corrected + reasoned-proceed. false-positive signals are excluded both ways, so the agent's noisy flags don't count against you._`;
+
+      return { content: [{ type: 'text', text }] };
+    } catch (error) {
+      console.error('Error in sentinel_operator_scorecard:', error);
+      return {
+        content: [{ type: 'text', text: `Error building scorecard: ${error.message}` }],
         isError: true,
       };
     }

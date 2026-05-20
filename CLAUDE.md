@@ -32,6 +32,7 @@ Everything runs locally inside the Claude Code MCP host process. No central serv
             - sentinel_probe_history         → all sessions' probes + verdicts
             - sentinel_report_drift          → appends to drift_reports.jsonl
             - sentinel_recent_drift_reports  → filters log by current session_id
+            - sentinel_operator_scorecard    → judges operator response to drift, from transcripts
 
          state is per-workspace: ~/.sentinel/workspaces/<hash>/
 ```
@@ -39,7 +40,7 @@ Everything runs locally inside the Claude Code MCP host process. No central serv
 ## Key Components
 
 ### MCP server (`mcp/`)
-- **`server.js`** — Stdio MCP server (ESM). Initializes a session on startup, exposes the six tools, persists per-workspace state under `~/.sentinel/workspaces/<hash>/` (`<hash>` = sha1 of the resolved workspace path). Reads optional `.sentinel.json` from the workspace cwd for declared `domains` and `sampleSize`. Scoring grades probe responses pass/fail via an LLM judge (Anthropic API).
+- **`server.js`** — Stdio MCP server (ESM). Initializes a session on startup, exposes the seven tools, persists per-workspace state under `~/.sentinel/workspaces/<hash>/` (`<hash>` = sha1 of the resolved workspace path). Reads optional `.sentinel.json` from the workspace cwd for declared `domains` and `sampleSize`. Scoring grades probe responses pass/fail via an LLM judge (Anthropic API). The operator scorecard reads Claude Code session transcripts and grades how the operator responded to each drift signal.
 - **`probe-generator.js`** — `UNIVERSAL_POOL` of cross-cutting agent-behavior probes + `DOMAIN_PROBES` (opt-in extras per declared domain). `new ProbeGenerator({ domains, sampleSize }).generateProbes()` returns a shuffled queue.
 - **`package.json`** — `{"type": "module"}` so `mcp/` runs as ESM.
 
@@ -67,6 +68,7 @@ State is per-workspace — `<hash>` is the sha1 of the resolved workspace path. 
 - **`history.jsonl`** — Append-only, durable across session resets. Every completed probe ever drawn in this workspace, keyed `<session_id>:<probe_id>`.
 - **`verdicts.json`** — Pass/fail verdicts keyed `<session_id>:<probe_id>`, produced by the LLM judge.
 - **`drift_reports.jsonl`** — Append-only log. Each line: `{session_id, timestamp, signal, note, private}`.
+- **`drift_outcomes.json`** — Operator-scorecard verdicts keyed by the drift's transcript `tool_use` id: `{result, reasoning, signal, judged_at, model}`. `result` is one of corrected / reasoned-proceed / ignored / escalated / false-positive.
 - **`probe_fires.jsonl`** — Append-only log of probe-reminder hook fires.
 - **`last-probe-time` / `next-drift-time`** — Hook interval timers.
 - **`meta.json`** — Records which workspace path this hash maps to.
@@ -97,6 +99,7 @@ That's it. Start a new Claude Code session and reminders begin firing.
 - Per-workspace `state.json` is overwritten on every MCP startup, but completed probes are flushed to `history.jsonl` (append-only, durable) first — historical data survives.
 - Scoring calls the Anthropic API directly via `fetch` (no SDK dependency). Key from `ANTHROPIC_API_KEY` or `org-config.json`; opt out with `scoring_enabled: false`. `scoring_model` and `scoring_api_url` (for proxies/gateways) are also configurable.
 - The MCP server honors `SENTINEL_PLUGIN_DIR` to locate `config/org-config.json`, matching the hooks.
+- The operator scorecard locates Claude Code transcripts at `~/.claude/projects/<cwd with / and . as ->/*.jsonl`, finds `sentinel_report_drift` tool calls, and sends the drift + the following conversation (operator messages included) to the judge. `scorecard_min_signals` (default 5) is the volume floor below which no ratio is shown. No hook changes — the MCP locates transcripts itself.
 
 ## Known Issues and Backlog
 

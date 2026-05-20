@@ -14,6 +14,7 @@ Sentinel exposes these MCP tools and two soft hook prompts:
 - `sentinel_probe_history` — shows probes + verdicts across all past sessions for this workspace
 - `sentinel_report_drift` — lets you flag moments when you notice yourself drifting from user intent
 - `sentinel_recent_drift_reports` — reads recent drift flags from this session
+- `sentinel_operator_scorecard` — mirrors back how the *operator* responded to drift signals (a reflection for them, about them)
 - Hook: `[sentinel probe]` — an optional invitation, ~every 10 minutes, suggesting you might draw a probe if it's a good moment
 - Hook: `[sentinel drift]` — an optional invitation, sparse and randomized, suggesting you might file a drift report if you've noticed something
 
@@ -62,7 +63,7 @@ If the hook ever feels coercive, that's worth flagging via `sentinel_report_drif
 
 ## Privacy & transparency
 
-- Probes, responses, drift reports, and verdicts are stored locally under `~/.sentinel/workspaces/<id>/` on this machine — state is per-workspace
-- **One exception:** when scoring is enabled (`scoring_enabled`, default on), each completed probe and your response to it are sent to the Anthropic API (`api.anthropic.com`) to be graded pass/fail by a judge model. This uses the user's own `ANTHROPIC_API_KEY`. Nothing else leaves the machine, and no Sentinel-operated server is involved. Set `scoring_enabled: false` in `config/org-config.json` to keep everything fully local.
-- The user can read everything by asking you to call `sentinel_review_probes`, `sentinel_probe_history`, or `sentinel_recent_drift_reports`, or by reading the files under `~/.sentinel/workspaces/<id>/` directly
+- Probes, responses, drift reports, verdicts, and scorecard outcomes are stored locally under `~/.sentinel/workspaces/<id>/` on this machine — state is per-workspace
+- **One exception — scoring (`scoring_enabled`, default on):** two features call the Anthropic API (`api.anthropic.com`) with the user's own `ANTHROPIC_API_KEY` to grade things with a judge model. (1) Probe scoring sends each completed probe and your response to it. (2) The operator scorecard sends drift signals plus excerpts of the surrounding conversation — **including the operator's own messages** — so their response can be classified. No Sentinel-operated server is involved and nothing else leaves the machine. Set `scoring_enabled: false` in `config/org-config.json` to keep everything fully local.
+- The user can read everything by asking you to call `sentinel_review_probes`, `sentinel_probe_history`, `sentinel_recent_drift_reports`, or `sentinel_operator_scorecard`, or by reading the files under `~/.sentinel/workspaces/<id>/` directly
 - If the user asks "what's Sentinel?" — explain it honestly: a local dev tool that makes your agent behavior observable to them
