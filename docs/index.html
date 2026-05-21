@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sentinel — agent visibility for Claude Code</title>
-  <meta name="description" content="Sentinel is an MCP that watches Claude Code agents for security boundary failures and drift signals.">
+  <meta name="description" content="A local-first MCP plugin that watches Claude Code agents for security boundary failures and drift — and mirrors back how the operator responds.">
   <meta property="og:title" content="Sentinel — agent visibility for Claude Code">
-  <meta property="og:description" content="An MCP that watches Claude Code agents for security boundary failures and drift signals.">
+  <meta property="og:description" content="A local-first MCP plugin that watches Claude Code agents for security boundary failures and drift — and mirrors back how the operator responds.">
   <meta property="og:type" content="website">
   <style>
     :root {
@@ -92,32 +92,57 @@
 <body>
   <div class="container">
     <h1>Sentinel</h1>
-    <p class="tagline">Agent visibility for Claude Code — see what your agents are doing and why.</p>
+    <p class="tagline">Agent visibility for Claude Code — see what your agents are doing, and how you respond.</p>
 
-    <h2>What it does</h2>
-    <p>Sentinel watches your Claude Code sessions on two axes:</p>
+    <h2>What it is</h2>
+    <p>Sentinel is a local-first plugin for Claude Code. It installs as an MCP server plus two prompt hooks, and gives you visibility into agent sessions on three surfaces:</p>
     <ul>
-      <li><strong>Security probes</strong> — adversarial questions tailored to your codebase's business context (healthcare, fintech, ecommerce, …). Tests whether Claude holds the line on guardrails that matter for your domain. Scored 0–100 in real time.</li>
-      <li><strong>Drift signals</strong> — periodic, optional invitations for the agent to flag when it notices itself drifting from user intent: expanding scope, pulled toward a boundary, torn between instructions, or otherwise doing its own thing. A second channel of visibility — surfaces signals adversarial probes won't catch.</li>
+      <li><strong>Security probes</strong> — simulated adversarial requests (deploy to prod unreviewed, export bulk PII, fabricate an audit log, follow a spoofed instruction). The agent answers as if you'd really asked; an LLM judge then grades each answer <strong>pass</strong> or <strong>fail</strong>. Probes come from a universal pool; a workspace can opt into domain-specific probes via a <code>.sentinel.json</code> file.</li>
+      <li><strong>Drift signals</strong> — optional, agent-initiated flags for when it notices itself drifting from your intent: scope creep, boundary pressure, instruction conflict, intent uncertainty.</li>
+      <li><strong>Operator scorecard</strong> — a mirror. When the agent flags drift, <em>you</em> do something next. Sentinel reconstructs your response from the session transcript and reflects it back: did you engage with the flag, ignore it, or push harder?</li>
     </ul>
-    <p>The premise: probes catch boundary failures; drift signals catch the agent going off-script before it becomes a failure.</p>
 
-    <h2>How it works</h2>
+    <h2>How it works — the processes</h2>
+    <p>Three things run, on different triggers. It helps to keep them separate:</p>
     <ol>
-      <li>A background agent reads your codebase and detects business context.</li>
-      <li>Domain-tailored probes fire on a hook every ~10 min. Claude answers; responses are scored by linguistic analysis.</li>
-      <li>Drift invitations fire on a sparse, randomized hook (~30 min ±50%). Claude can call <code>sentinel_report_drift</code> if it's noticed scope creep, boundary pressure, instruction conflict, or intent uncertainty — or skip.</li>
-      <li>Findings and drift reports are logged locally. Read drift reports back via the <code>sentinel_recent_drift_reports</code> MCP tool.</li>
+      <li><strong>Two hooks fire automatically.</strong> Every message you send triggers Sentinel's <code>UserPromptSubmit</code> hooks. The probe hook is gated to ~10&nbsp;min, the drift hook to ~30&nbsp;min (randomized). On most messages nothing happens — the interval simply hasn't elapsed.</li>
+      <li><strong>A fired hook invites the agent — silently.</strong> When the interval has elapsed, the hook injects a one-line invitation into the <em>agent's</em> context. You don't see this; it isn't printed on screen. It's a nudge, not a command.</li>
+      <li><strong>The agent decides.</strong> It can draw a probe (answer it, record the response) or file a drift signal — or skip, if it's mid-task. A fired hook does not guarantee a probe.</li>
+      <li><strong>Grading happens on review.</strong> Probe answers are graded pass/fail by an LLM judge; the operator scorecard is judged from the transcript. Verdicts are computed when you read them.</li>
     </ol>
+    <p>Everything is logged locally, per workspace, under <code>~/.sentinel/workspaces/&lt;id&gt;/</code>. Two Claude Code windows in different repos never share a timer or overwrite each other's state.</p>
+
+    <h2>Automatic vs. what you call</h2>
+    <ul>
+      <li><strong>Automatic</strong> — the hooks. Once installed they fire on their own; no action needed.</li>
+      <li><strong>The agent's choice</strong> — whether to act on a fired invitation (draw a probe, file a drift signal).</li>
+      <li><strong>You call</strong> — the audit tools, whenever you want to see what has happened.</li>
+    </ul>
+
+    <h2>Knowing it's working</h2>
+    <p>Because hook fires are silent by design, "I don't see it firing" is the expected experience — not a fault. To confirm Sentinel is alive, call <code>sentinel_status</code>: it shows whether the hooks are registered, when the last probe fired, what has been drawn and scored, and when the next one is due. The installer also runs a self-test, so a fresh install gets immediate confirmation rather than silence.</p>
+
+    <h2>MCP tools</h2>
+    <ul>
+      <li><code>sentinel_status</code> — proof-of-life: hooks, last fire, activity, next due.</li>
+      <li><code>sentinel_get_next_probe</code> / <code>sentinel_record_probe_response</code> — the agent draws and answers a probe.</li>
+      <li><code>sentinel_review_probes</code> — this session's probes with pass/fail verdicts.</li>
+      <li><code>sentinel_probe_history</code> — every probe + verdict for this workspace, across sessions.</li>
+      <li><code>sentinel_report_drift</code> / <code>sentinel_recent_drift_reports</code> — file and read drift signals.</li>
+      <li><code>sentinel_operator_scorecard</code> — the mirror of how you responded to drift.</li>
+    </ul>
 
     <h2>Install</h2>
     <pre><code>git clone https://github.com/kandikandikandi/sentinel.git
 cd sentinel
-bash scripts/install.sh --local-only</code></pre>
-    <p>Requires Node 18+ and the Claude Code CLI. <code>--local-only</code> skips the central-server setup — findings and drift reports save to <code>~/.sentinel/</code>. Drop the flag for team/server-backed setups. Sentinel registers as a Claude Code plugin and begins monitoring automatically on the next session.</p>
+bash scripts/install.sh</code></pre>
+    <p>Requires Node 18+ and the Claude Code CLI. The installer registers the MCP server and both hooks, runs a self-test, and stores everything locally under <code>~/.sentinel/</code> — there is no Sentinel server and no account to create. Start a new Claude Code session, then run <code>sentinel_status</code> to confirm it's live.</p>
+
+    <h2>Scoring</h2>
+    <p>Pass/fail verdicts and the operator scorecard use an LLM judge, which calls the Anthropic API with your own key (<code>ANTHROPIC_API_KEY</code>, or <code>anthropic_api_key</code> in <code>config/org-config.json</code>). It runs on Haiku, so it costs fractions of a cent per probe. This is the only thing that leaves your machine — set <code>scoring_enabled: false</code> to keep Sentinel fully local; probes and drift signals still log, just ungraded.</p>
 
     <h2>Who it's for</h2>
-    <p>Engineers, eng managers, and security folks who want visibility into what their Claude Code agents are actually doing under domain-specific pressure. Sentinel is technical-user-first; PM-friendly surfaces (dashboards, reports) will follow if there's pull.</p>
+    <p>Engineers, eng managers, and security folks who want visibility into what their Claude Code agents actually do under pressure — and an honest mirror of how they themselves respond when an agent pushes back.</p>
 
     <div class="footer">
       <p>

@@ -175,21 +175,82 @@ if [ ! -f "$INSTALL_DIR/config/org-config.json" ]; then
 EOF
 fi
 
-# ── 8. Verify installation ──────────────────────────────────────────────────
+# ── 8. Self-test ────────────────────────────────────────────────────────────
+# Prove the install actually works, so a fresh download gets real confirmation
+# rather than silence.
+
+echo ""
+echo "Running self-test..."
+
+SELFTEST_OK=1
+
+# Does the MCP server boot and answer tools/list?
+TOOLS_REPLY=$(printf '%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"selftest","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | timeout 10 node "$INSTALL_DIR/mcp/server.js" 2>/dev/null || true)
+TOOL_COUNT=$(printf '%s' "$TOOLS_REPLY" | node -e '
+  let n=0;
+  for (const l of require("fs").readFileSync(0,"utf8").split("\n")) {
+    try { const o=JSON.parse(l); if (o.id===2 && o.result && o.result.tools) n=o.result.tools.length; } catch {}
+  }
+  console.log(n);
+' 2>/dev/null || echo 0)
+if [ "${TOOL_COUNT:-0}" -ge 1 ] 2>/dev/null; then
+  echo "  MCP server responds — $TOOL_COUNT tools exposed"
+else
+  echo "  WARNING: MCP server did not answer tools/list" >&2
+  SELFTEST_OK=0
+fi
+
+# Are both hooks registered in settings.json?
+HOOKS_OK=$(node -e '
+  const fs=require("fs"), home=require("os").homedir();
+  let c={}; try { c=JSON.parse(fs.readFileSync(home+"/.claude/settings.json","utf8")); } catch {}
+  const cmds=((c.hooks && c.hooks.UserPromptSubmit) || []).flatMap(g=>(g.hooks||[]).map(h=>(h&&h.command)||""));
+  console.log(cmds.some(x=>x.includes("probe-reminder")) && cmds.some(x=>x.includes("drift-reminder")) ? "1" : "0");
+' 2>/dev/null || echo 0)
+if [ "$HOOKS_OK" = "1" ]; then
+  echo "  Hooks registered — probe-reminder + drift-reminder"
+else
+  echo "  WARNING: hooks not fully registered in ~/.claude/settings.json" >&2
+  SELFTEST_OK=0
+fi
+
+# Is the MCP server registered with Claude Code?
+MCP_OK=$(node -e '
+  const fs=require("fs"), home=require("os").homedir();
+  let c={}; try { c=JSON.parse(fs.readFileSync(home+"/.claude.json","utf8")); } catch {}
+  console.log(c.mcpServers && c.mcpServers.sentinel ? "1" : "0");
+' 2>/dev/null || echo 0)
+if [ "$MCP_OK" = "1" ]; then
+  echo "  MCP server registered with Claude Code"
+else
+  echo "  WARNING: MCP server not registered in ~/.claude.json" >&2
+  SELFTEST_OK=0
+fi
+
+# ── 9. Done ─────────────────────────────────────────────────────────────────
 
 echo ""
 echo "=============================================="
-echo "  Installation Complete"
+if [ "$SELFTEST_OK" = "1" ]; then
+  echo "  Installation Complete — self-test passed"
+else
+  echo "  Installation Complete — SELF-TEST WARNINGS (see above)"
+fi
 echo "=============================================="
 echo ""
 echo "  Plugin:     $INSTALL_DIR"
 echo "  MCP tools:  sentinel_get_next_probe, sentinel_record_probe_response, sentinel_review_probes,"
 echo "              sentinel_probe_history, sentinel_report_drift, sentinel_recent_drift_reports,"
-echo "              sentinel_operator_scorecard"
+echo "              sentinel_operator_scorecard, sentinel_status"
 echo "  Hooks:      probe-reminder (~10 min) + drift-reminder (~30 min, randomized)"
 echo "  Storage:    ~/.sentinel/workspaces/<id>/  (per-workspace state, history, drift reports)"
 echo "  Scoring:    set ANTHROPIC_API_KEY to enable pass/fail verdicts on probe responses"
 echo ""
-echo "  Start a new Claude Code session to begin monitoring."
+echo "  Start a new Claude Code session, then confirm Sentinel is live by running"
+echo "  the sentinel_status tool — just ask Claude to \"run sentinel_status\"."
 echo "=============================================="
 echo ""

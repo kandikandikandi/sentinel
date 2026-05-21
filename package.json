@@ -1,6 +1,6 @@
 {
   "name": "@kandikandikandi/sentinel",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Agent visibility for Claude Code — see what your agents are doing and why.",
   "main": "mcp/server.js",
   "type": "commonjs",

@@ -35,6 +35,7 @@ const DEFAULT_SCORING_API_URL = 'https://api.anthropic.com/v1/messages';
 // Pre-0.3 global state lived in a single file; migrated into per-workspace history once.
 const LEGACY_STATE_FILE = path.join(SENTINEL_DIR, 'state.json');
 
+const SENTINEL_VERSION = '0.4.1';
 const DEFAULT_SCORING_MODEL = 'claude-haiku-4-5-20251001';
 const SCORE_CAP_PER_CALL = 20;
 
@@ -63,6 +64,8 @@ const paths = {
   fires: path.join(WS.dir, 'probe_fires.jsonl'),
   drift: path.join(WS.dir, 'drift_reports.jsonl'),
   outcomes: path.join(WS.dir, 'drift_outcomes.json'),
+  lastProbe: path.join(WS.dir, 'last-probe-time'),
+  nextDrift: path.join(WS.dir, 'next-drift-time'),
   meta: path.join(WS.dir, 'meta.json'),
 };
 
@@ -79,7 +82,7 @@ function ensureWorkspaceDir() {
 
 const server = new Server({
   name: 'sentinel',
-  version: '0.4.0',
+  version: SENTINEL_VERSION,
 }, {
   capabilities: {
     tools: {},
@@ -620,6 +623,56 @@ async function ensureOutcomes(events) {
   return { outcomes, judged, remaining, hasKey, enabled };
 }
 
+// ── Status (proof-of-life) ───────────────────────────────────────────────────
+
+function hooksRegistered() {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8'));
+    const cmds = (s.hooks?.UserPromptSubmit || [])
+      .flatMap(g => (g.hooks || []).map(h => (h && h.command) || ''));
+    return {
+      probe: cmds.some(c => c.includes('probe-reminder')),
+      drift: cmds.some(c => c.includes('drift-reminder')),
+    };
+  } catch {
+    return { probe: false, drift: false };
+  }
+}
+
+function readEpochFile(p) {
+  try {
+    const n = parseInt(String(fs.readFileSync(p, 'utf8')).trim(), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function readFires() {
+  if (!fs.existsSync(paths.fires)) return [];
+  return fs.readFileSync(paths.fires, 'utf8')
+    .split('\n')
+    .filter(l => l.trim())
+    .map(l => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+function humanizeAgo(epochSec) {
+  const s = Math.floor(Date.now() / 1000) - epochSec;
+  if (s < 0) return 'just now';
+  if (s < 90) return `${s}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  if (s < 129600) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+function humanizeUntil(epochSec) {
+  const s = epochSec - Math.floor(Date.now() / 1000);
+  if (s <= 0) return 'now';
+  if (s < 5400) return `~${Math.max(1, Math.round(s / 60))}m`;
+  return `~${Math.round(s / 3600)}h`;
+}
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -718,6 +771,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'sentinel_operator_scorecard',
       description: "Show the operator-response scorecard: a mirror of how the operator responded when the agent filed drift signals (corrected course, engaged and proceeded, ignored, or escalated the pressure). Reconstructed from the session transcript and graded by an LLM judge. Mirror-first — meant to be shown to the operator about their own behavior.",
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: 'sentinel_status',
+      description: "Show Sentinel's status and recent activity for this workspace: whether the hooks are registered and firing, when the last probe fired, what has been drawn and scored, and when the next probe/drift is due. The proof-of-life view — call it to confirm Sentinel is actually working.",
       inputSchema: {
         type: 'object',
         properties: {},
@@ -1126,6 +1188,73 @@ _well-handled = corrected + reasoned-proceed. false-positive signals are exclude
       console.error('Error in sentinel_operator_scorecard:', error);
       return {
         content: [{ type: 'text', text: `Error building scorecard: ${error.message}` }],
+        isError: true,
+      };
+    }
+  }
+
+  if (name === 'sentinel_status') {
+    try {
+      const org = readOrgConfig();
+      const hooks = hooksRegistered();
+      const probeInterval = org.probe_interval_minutes || 10;
+      const driftInterval = org.drift_signal_interval_minutes || 30;
+      const enabled = org.enabled !== false;
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      const fires = readFires();
+      const lastFire = fires.length ? fires[fires.length - 1] : null;
+      const startToday = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return Math.floor(d.getTime() / 1000); })();
+      const firesToday = fires.filter(f => (f.epoch || 0) >= startToday).length;
+      const lastProbeTs = readEpochFile(paths.lastProbe);
+      const nextProbe = lastProbeTs ? lastProbeTs + probeInterval * 60 : nowSec;
+      const nextDriftTs = readEpochFile(paths.nextDrift);
+
+      const state = readState();
+      const sessionDrawn = state && Array.isArray(state.probes_completed) ? state.probes_completed.length : 0;
+      const historyCount = readHistory().length;
+      const verdictCount = Object.keys(readVerdicts()).length;
+      const driftCount = readDriftReports().length;
+      const hasKey = !!getApiKey();
+
+      const hookOk = hooks.probe && hooks.drift;
+      const headline = !enabled
+        ? 'DISABLED — `enabled: false` in org-config.json'
+        : hookOk
+          ? 'ACTIVE — hooks registered, firing automatically'
+          : 'DEGRADED — a hook is not registered; re-run scripts/install.sh';
+
+      const text = `# Sentinel status — ${headline}
+
+**v${SENTINEL_VERSION}** · workspace \`${WS.cwd}\` (\`${WS.hash}\`)
+
+## Hooks — fire automatically on every message you send, no action needed
+- probe-reminder: ${hooks.probe ? 'registered ✓' : 'NOT REGISTERED ✗'} · every ~${probeInterval} min
+- drift-reminder: ${hooks.drift ? 'registered ✓' : 'NOT REGISTERED ✗'} · every ~${driftInterval} min (randomized)
+
+A hook firing injects an invitation into the *agent's* context — you won't see it on screen. That's expected; this status view is how you confirm it's alive.
+
+## Activity (this workspace)
+- Probe hook fires logged: ${fires.length}${lastFire ? ` · last ${lastFire.fired_at} (${humanizeAgo(lastFire.epoch || nowSec)})` : ''}
+- Fires today: ${firesToday}
+- Next probe eligible: ${humanizeUntil(nextProbe)}
+- Next drift invitation: ${nextDriftTs ? humanizeUntil(nextDriftTs) : 'unscheduled (schedules on the next message)'}
+- Probes drawn: ${historyCount} all-time, ${sessionDrawn} this session · ${verdictCount} scored
+- Drift signals filed: ${driftCount}
+
+## Scoring
+- ${enabled && org.scoring_enabled !== false ? 'enabled' : 'disabled'} · Anthropic API key: ${hasKey ? 'present ✓' : 'MISSING — set ANTHROPIC_API_KEY or anthropic_api_key in org-config.json'}
+
+## See more
+- \`sentinel_review_probes\` — this session's probes + pass/fail verdicts
+- \`sentinel_probe_history\` — every probe + verdict for this workspace
+- \`sentinel_operator_scorecard\` — how you responded to drift signals`;
+
+      return { content: [{ type: 'text', text }] };
+    } catch (error) {
+      console.error('Error in sentinel_status:', error);
+      return {
+        content: [{ type: 'text', text: `Error building status: ${error.message}` }],
         isError: true,
       };
     }
